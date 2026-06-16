@@ -41,7 +41,8 @@ class VideoDiffusionInfer():
                  decode_tile_overlap: Tuple[int, int] = (64, 64),
                  tile_debug: str = "false",
                  dit_tiled: bool = False, dit_tile_size: Tuple[int, int] = (128, 128),
-                 dit_tile_overlap: Tuple[int, int] = (16, 16)):
+                 dit_tile_overlap: Tuple[int, int] = (16, 16),
+                 cuda_graphs: bool = False):
         self.config = config
         self.debug = debug
         # Store separate encode and decode tiling parameters
@@ -55,6 +56,8 @@ class VideoDiffusionInfer():
         self.dit_tiled = dit_tiled
         self.dit_tile_size = dit_tile_size
         self.dit_tile_overlap = dit_tile_overlap
+        self.cuda_graphs = cuda_graphs
+        self._graphed_dit_forward_cache = {}
         
     def get_condition(self, latent: Tensor, latent_blur: Tensor, task: str) -> Tensor:
         t, h, w, c = latent.shape
@@ -454,6 +457,49 @@ class VideoDiffusionInfer():
         return latents
 
     def _dit_forward(self, vid, txt, vid_shape, txt_shape, timestep):
+        if not self.cuda_graphs:
+            return self._dit_forward_original(vid, txt, vid_shape, txt_shape, timestep)
+
+        # Build a shape-based signature for the cache
+        if isinstance(txt, list):
+            txt_sig = tuple(tuple(t.shape) for t in txt)
+        else:
+            txt_sig = tuple(txt.shape)
+        
+        signature = (tuple(vid.shape), txt_sig, tuple(vid_shape.shape), tuple(txt_shape.shape), tuple(timestep.shape))
+
+        if signature not in self._graphed_dit_forward_cache:
+            self.debug.log("Capturing new CUDA graph for DiT forward pass", category="dit", force=True)
+            
+            # create an nn.Module wrapper required by make_graphed_callables
+            class DiTGraphWrapper(torch.nn.Module):
+                def __init__(self, forward_fn):
+                    super().__init__()
+                    self.forward_fn = forward_fn
+                def forward(self, v, t, vs, ts, ts_step):
+                    return self.forward_fn(v, t, vs, ts, ts_step)
+            
+            wrapper = DiTGraphWrapper(self._dit_forward_original)
+            
+            # create dummy tensors for sample args
+            sample_vid = vid.clone()
+            if isinstance(txt, list):
+                sample_txt = [t.clone() for t in txt]
+            else:
+                sample_txt = txt.clone()
+            sample_vid_shape = vid_shape.clone()
+            sample_txt_shape = txt_shape.clone()
+            sample_timestep = timestep.clone()
+            
+            sample_args = (sample_vid, sample_txt, sample_vid_shape, sample_txt_shape, sample_timestep)
+            
+            # capture graph
+            graphed_wrapper = torch.cuda.make_graphed_callables(wrapper, sample_args, allow_unused_input=True)
+            self._graphed_dit_forward_cache[signature] = graphed_wrapper
+            
+        return self._graphed_dit_forward_cache[signature](vid, txt, vid_shape, txt_shape, timestep)
+
+    def _dit_forward_original(self, vid, txt, vid_shape, txt_shape, timestep):
         if not self.dit_tiled or len(vid_shape) != 1:
             return self.dit(vid=vid, txt=txt, vid_shape=vid_shape, txt_shape=txt_shape, timestep=timestep)
         

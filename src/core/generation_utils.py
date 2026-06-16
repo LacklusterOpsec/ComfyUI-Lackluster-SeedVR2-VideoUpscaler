@@ -510,6 +510,7 @@ def prepare_runner(
     vae_id: Optional[int] = None,
     block_swap_config: Optional[Dict[str, Any]] = None,
     encode_tiled: bool = False,
+    temporal_slicing: int = 4,
     encode_tile_size: Optional[Tuple[int, int]] = None,
     encode_tile_overlap: Optional[Tuple[int, int]] = None,
     decode_tiled: bool = False,
@@ -520,6 +521,10 @@ def prepare_runner(
     dit_tile_size: Optional[Tuple[int, int]] = None,
     dit_tile_overlap: Optional[Tuple[int, int]] = None,
     attention_mode: str = 'sdpa',
+    quantization: str = "none",
+    cuda_graphs: bool = False,
+    fused_adaln: bool = True,
+    fused_window_attn: bool = True,
     torch_compile_args_dit: Optional[Dict[str, Any]] = None,
     torch_compile_args_vae: Optional[Dict[str, Any]] = None
 ) -> Tuple['VideoDiffusionInfer', Dict[str, Any]]:
@@ -549,6 +554,8 @@ def prepare_runner(
         dit_tile_size: Spatial DiT tile size (height, width) in latent-space pixels
         dit_tile_overlap: Spatial overlap (height, width) between DiT tiles in latent-space pixels
         attention_mode: Attention computation backend ('sdpa', 'flash_attn_2', 'flash_attn_3', 'sageattn_2', or 'sageattn_3')
+        quantization: Dynamic quantization mode ('none', '8-bit (bitsandbytes)', '4-bit (bitsandbytes)')
+        cuda_graphs: Enable CUDA Graph capture for fixed-shape inference
         torch_compile_args_dit: Optional torch.compile configuration for DiT model
         torch_compile_args_vae: Optional torch.compile configuration for VAE model
         
@@ -586,6 +593,7 @@ def prepare_runner(
         vae_id=vae_id,
         block_swap_config=block_swap_config,
         encode_tiled=encode_tiled,
+        temporal_slicing=temporal_slicing,
         encode_tile_size=encode_tile_size,
         encode_tile_overlap=encode_tile_overlap,
         decode_tiled=decode_tiled,
@@ -596,6 +604,10 @@ def prepare_runner(
         dit_tile_size=dit_tile_size,
         dit_tile_overlap=dit_tile_overlap,
         attention_mode=attention_mode,
+        quantization=quantization,
+        cuda_graphs=cuda_graphs,
+        fused_adaln=fused_adaln,
+        fused_window_attn=fused_window_attn,
         torch_compile_args_dit=torch_compile_args_dit,
         torch_compile_args_vae=torch_compile_args_vae
     )

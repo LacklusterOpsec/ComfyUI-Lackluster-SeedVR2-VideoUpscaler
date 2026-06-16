@@ -38,3 +38,9 @@ PublisherId = "ainvfx"
 DisplayName = "ComfyUI-SeedVR2_VideoUpscaler"
 Icon = "https://raw.githubusercontent.com/numz/ComfyUI-SeedVR2_VideoUpscaler/refs/heads/main/docs/seedvr_logo.png"
 includes = []
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]

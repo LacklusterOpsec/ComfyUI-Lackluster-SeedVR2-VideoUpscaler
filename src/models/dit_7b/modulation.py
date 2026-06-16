@@ -101,6 +101,9 @@ class AdaSingle(nn.Module):
             if gateB is not None and gateB.dtype in fp8_types:
                 gateB = gateB.to(target_dtype)
 
+        if mode == "in_fused":
+            return scaleA, scaleB, shiftA, shiftB
+            
         if mode == "in":
             return hid.mul_(scaleA + scaleB).add_(shiftA + shiftB)
         if mode == "out":

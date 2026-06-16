@@ -157,6 +157,42 @@ class SeedVR2LoadDiTModel(io.ComfyNode):
                         "Only used when dit_tiled is enabled."
                     )
                 ),
+                io.Boolean.Input("cuda_graphs",
+                    default=False,
+                    tooltip=(
+                        "Capture DiT forward pass in a CUDA Graph to eliminate CPU/CUDA launch overhead.\n"
+                        "Improves generation speed (especially with fast samplers) but consumes extra VRAM.\n"
+                        "Note: Re-captures when batch size or resolution changes."
+                    )
+                ),
+                io.Boolean.Input("fused_adaln",
+                    default=True,
+                    optional=True,
+                    tooltip=(
+                        "Fuse Adaptive Layer Norm into a single Triton kernel to reduce memory bandwidth.\n"
+                        "Improves step time by avoiding read/write overhead of intermediate tensors."
+                    )
+                ),
+                io.Boolean.Input("fused_window_attn",
+                    default=True,
+                    optional=True,
+                    tooltip=(
+                        "Use Triton kernel for strided window partition gathers to reduce memory bandwidth.\n"
+                        "Can accelerate spatial tiling significantly by avoiding intermediate tensor materialization."
+                    )
+                ),
+                io.Combo.Input("quantization",
+                    options=["none", "8-bit (bitsandbytes)", "4-bit (bitsandbytes)"],
+                    default="none",
+                    optional=True,
+                    tooltip=(
+                        "Dynamic quantization for standard models (not needed for GGUF).\n"
+                        "• none: Use original precision (FP16/BF16).\n"
+                        "• 8-bit: Reduce VRAM by ~50% with minimal quality loss (requires bitsandbytes).\n"
+                        "• 4-bit: Reduce VRAM by ~75% with some quality loss (requires bitsandbytes).\n"
+                        "Note: Quantization increases loading time."
+                    )
+                ),
             ],
             outputs=[
                 io.Custom("SEEDVR2_DIT").Output(
@@ -170,7 +206,8 @@ class SeedVR2LoadDiTModel(io.ComfyNode):
                      cache_model: bool = False, blocks_to_swap: int = 0, 
                      swap_io_components: bool = False, attention_mode: str = "sdpa",
                      torch_compile_args: Dict[str, Any] = None, dit_tiled: bool = False,
-                     dit_tile_size: int = 128, dit_tile_overlap: int = 16) -> io.NodeOutput:
+                     dit_tile_size: int = 128, dit_tile_overlap: int = 16,
+                     cuda_graphs: bool = False, fused_adaln: bool = True, fused_window_attn: bool = True, quantization: str = "none") -> io.NodeOutput:
         """
         Create DiT model configuration for SeedVR2 main node
         
@@ -214,6 +251,10 @@ class SeedVR2LoadDiTModel(io.ComfyNode):
             "dit_tiled": dit_tiled,
             "dit_tile_size": dit_tile_size,
             "dit_tile_overlap": dit_tile_overlap,
+            "quantization": quantization,
+            "cuda_graphs": cuda_graphs,
+            "fused_adaln": fused_adaln,
+            "fused_window_attn": fused_window_attn,
             "node_id": get_executing_context().node_id,
         }
         

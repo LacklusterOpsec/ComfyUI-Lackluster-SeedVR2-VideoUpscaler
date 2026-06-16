@@ -616,6 +616,7 @@ def window(
 def window_idx(
     hid_shape: torch.LongTensor,  # (b n)
     window_fn: Callable[[torch.Tensor], List[torch.Tensor]],
+    fused_window_attn: bool = False,
 ):
     """
     Create index-based windowing functions.
@@ -633,6 +634,19 @@ def window_idx(
     tgt_idx, tgt_shape, tgt_windows = window(hid_idx, hid_shape, window_fn)
     tgt_idx = tgt_idx.squeeze(-1)
     src_idx = torch.argsort(tgt_idx)
+    
+    if fused_window_attn:
+        try:
+            from ...optimization.fused_window import fused_index_select
+            return (
+                lambda hid: fused_index_select(hid, tgt_idx),
+                lambda hid: fused_index_select(hid, src_idx),
+                tgt_shape,
+                tgt_windows,
+            )
+        except BaseException:
+            pass
+            
     return (
         lambda hid: torch.index_select(hid, 0, tgt_idx),
         lambda hid: torch.index_select(hid, 0, src_idx),

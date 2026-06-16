@@ -860,9 +860,13 @@ def configure_runner(
     dit_tiled: bool = False,
     dit_tile_size: Optional[Tuple[int, int]] = None,
     dit_tile_overlap: Optional[Tuple[int, int]] = None,
+    cuda_graphs: bool = False,
+    fused_adaln: bool = True,
+    fused_window_attn: bool = True,
     attention_mode: str = 'sdpa',
     torch_compile_args_dit: Optional[Dict[str, Any]] = None,
-    torch_compile_args_vae: Optional[Dict[str, Any]] = None
+    torch_compile_args_vae: Optional[Dict[str, Any]] = None,
+    quantization: str = "none"
 ) -> Tuple[VideoDiffusionInfer, Dict[str, Any]]:
     """
     Configure VideoDiffusionInfer runner with model loading and settings.
@@ -890,9 +894,11 @@ def configure_runner(
         dit_tiled: Enable spatial DiT tiling during upscaling
         dit_tile_size: Spatial DiT tile size (height, width) in latent-space pixels
         dit_tile_overlap: Spatial overlap (height, width) between DiT tiles in latent-space pixels
+        cuda_graphs: Enable CUDA graphs for DiT model inference
         attention_mode: Attention computation backend ('sdpa', 'flash_attn_2', 'flash_attn_3', 'sageattn_2', or 'sageattn_3')
         torch_compile_args_dit: Optional torch.compile configuration for DiT model
         torch_compile_args_vae: Optional torch.compile configuration for VAE model
+        quantization: Dynamic quantization mode
         
     Returns:
         Tuple[VideoDiffusionInfer, Dict[str, Any]]: (configured runner, cache context dict)
@@ -940,7 +946,7 @@ def configure_runner(
             cache_context.get('vae_id') if vae_cache else None,
             encode_tiled, encode_tile_size, encode_tile_overlap,
             decode_tiled, decode_tile_size, decode_tile_overlap,
-            tile_debug, dit_tiled, dit_tile_size, dit_tile_overlap, attention_mode,
+            tile_debug, dit_tiled, dit_tile_size, dit_tile_overlap, cuda_graphs, fused_adaln, fused_window_attn, attention_mode,
             torch_compile_args_dit, torch_compile_args_vae,
             block_swap_config, debug
         )
@@ -948,7 +954,7 @@ def configure_runner(
         # Phase 4: Setup models (load from cache or create new)
         _setup_models(
             runner, cache_context, dit_model, vae_model, 
-            base_cache_dir, block_swap_config, debug
+            base_cache_dir, block_swap_config, quantization, debug
         )
     except BaseException:
         _evict_claimed_cached_models(cache_context, runner, debug)
@@ -1069,6 +1075,9 @@ def _configure_runner_settings(
     dit_tiled: bool,
     dit_tile_size: Optional[Tuple[int, int]],
     dit_tile_overlap: Optional[Tuple[int, int]],
+    cuda_graphs: bool,
+    fused_adaln: bool,
+    fused_window_attn: bool,
     attention_mode: str,
     torch_compile_args_dit: Optional[Dict[str, Any]],
     torch_compile_args_vae: Optional[Dict[str, Any]],
@@ -1113,8 +1122,16 @@ def _configure_runner_settings(
     runner.dit_tiled = dit_tiled
     runner.dit_tile_size = dit_tile_size
     runner.dit_tile_overlap = dit_tile_overlap
+    runner.cuda_graphs = cuda_graphs
+    runner.fused_adaln = fused_adaln
+    runner.fused_window_attn = fused_window_attn
     
-    # Store the new configs temporarily for later comparison
+    if hasattr(runner, 'dit') and runner.dit is not None:
+        for module in runner.dit.modules():
+            module.fused_adaln = fused_adaln
+            module.fused_window_attn = fused_window_attn
+    
+    # Store attention_mode internally on runner comparison
     # Don't set them as attributes yet - let the update functions handle that
     runner._new_dit_compile_args = torch_compile_args_dit
     runner._new_vae_compile_args = torch_compile_args_vae
@@ -1149,6 +1166,7 @@ def _setup_models(
     vae_model: str,
     base_cache_dir: str,
     block_swap_config: Optional[Dict[str, Any]],
+    quantization: str = "none",
     debug: Optional['Debug'] = None
 ) -> None:
     """
@@ -1179,8 +1197,7 @@ def _setup_models(
     debug.start_timer("model_structures")
     
     # Setup DiT
-    dit_created = _setup_dit_model(runner, cache_context, dit_model, base_cache_dir, 
-                                   block_swap_config, debug)
+    dit_created = _setup_dit_model(runner, cache_context, dit_model, base_cache_dir, block_swap_config, quantization, debug)
     
     # Only update DiT config if model was cached/reused (not newly created)
     if not dit_created and hasattr(runner, 'dit') and runner.dit is not None:
@@ -1226,6 +1243,7 @@ def _setup_dit_model(
     dit_model: str,
     base_cache_dir: str,
     block_swap_config: Optional[Dict[str, Any]],
+    quantization: str = "none",
     debug: Optional['Debug'] = None
 ) -> bool:
     """
@@ -1244,6 +1262,7 @@ def _setup_dit_model(
         dit_model: DiT model filename (e.g., "seedvr2_ema_3b_fp16.safetensors")
         base_cache_dir: Base directory containing model files
         block_swap_config: BlockSwap configuration to store (not applied here)
+        quantization: Dynamic quantization mode
         debug: Debug instance for logging
         
     Returns:
@@ -1278,15 +1297,15 @@ def _setup_dit_model(
         return False
     elif not hasattr(runner, 'dit') or runner.dit is None:
         # Create new DiT model
-        # Set DiT dtype from runner's compute_dtype
-        # compute_dtype = getattr(runner, '_compute_dtype', torch.bfloat16)
-        # dit_dtype_str = str(compute_dtype).split('.')[-1]
-        # runner.config.dit.dtype = dit_dtype_str
-        # runner._dit_dtype_override = compute_dtype
-        
         dit_checkpoint_path = find_model_file(dit_model, base_cache_dir)
+        runner.config.dit.quantization = quantization
+        runner.config.dit.fused_adaln = runner.fused_adaln
+        runner.config.dit.fused_window_attn = runner.fused_window_attn
         runner = prepare_model_structure(runner, "dit", dit_checkpoint_path, 
                                         runner.config, debug, block_swap_config)
+        for module in runner.dit.modules():
+            module.fused_adaln = runner.fused_adaln
+            module.fused_window_attn = runner.fused_window_attn
         runner._dit_model_name = dit_model
         return True
     else:

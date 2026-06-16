@@ -375,6 +375,10 @@ def _configure_blocks(
             total_main_memory += block_memory
         else:
             block.to(offload_device, non_blocking=False)
+            if offload_device.type == 'cpu':
+                for param in block.parameters():
+                    if param.data is not None and not param.data.is_pinned():
+                        param.data = param.data.pin_memory()
             total_offload_memory += block_memory
 
     # Ensure all buffers match their containing module's device
@@ -383,6 +387,8 @@ def _configure_blocks(
         for name, buffer in block.named_buffers():
             if buffer.device != torch.device(target_device):
                 buffer.data = buffer.data.to(target_device, non_blocking=False)
+            if target_device.type == 'cpu' and buffer.data is not None and not buffer.data.is_pinned():
+                buffer.data = buffer.data.pin_memory()
 
     return {
         "offload_memory": total_offload_memory,
@@ -498,18 +504,38 @@ def _wrap_block_forward(
             # Use dynamo-disabled helper to get start time (avoids compilation warnings)
             t_start = _get_swap_start_time(debug, debug.enabled if debug else False)
 
-            # Only move to GPU if necessary
-            current_device = next(self.parameters()).device
-            target_device = torch.device(model.main_device)
+            # Check for completed prefetch event
+            if hasattr(self, '_prefetch_event'):
+                self._prefetch_event.wait()
+                delattr(self, '_prefetch_event')
+            else:
+                # Only move to GPU if necessary
+                current_device = next(self.parameters()).device
+                target_device = torch.device(model.main_device)
+                
+                if current_device != target_device:
+                    self.to(model.main_device, non_blocking=True)
             
-            if current_device != target_device:
-                self.to(model.main_device, non_blocking=False)
+            # Initiate prefetch for next block
+            next_block_idx = self._block_idx + 1
+            if next_block_idx <= model.blocks_to_swap and next_block_idx < len(model.blocks):
+                next_block = model.blocks[next_block_idx]
+                
+                # Create prefetch stream if it doesn't exist
+                if not hasattr(model, '_prefetch_stream'):
+                    model._prefetch_stream = torch.cuda.Stream(device=model.main_device)
+                
+                with torch.cuda.stream(model._prefetch_stream):
+                    next_block.to(model.main_device, non_blocking=True)
+                    if not hasattr(next_block, '_prefetch_event'):
+                        next_block._prefetch_event = torch.cuda.Event()
+                    next_block._prefetch_event.record(model._prefetch_stream)
 
             # Execute forward pass with OOM protection
             output = original_forward(*args, **kwargs)
 
-            # Move back to offload device
-            self.to(model.offload_device, non_blocking=False)
+            # Move back to offload device asynchronously
+            self.to(model.offload_device, non_blocking=True)
             
             # Use dynamo-disabled helper to log timing (avoids compilation warnings)
             _log_swap_timing(debug, t_start, self._block_idx, "block")

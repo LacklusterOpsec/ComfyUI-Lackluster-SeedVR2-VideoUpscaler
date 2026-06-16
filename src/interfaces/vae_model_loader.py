@@ -60,6 +60,19 @@ class SeedVR2LoadVAEModel(io.ComfyNode):
                     optional=True,
                     tooltip="Enable tiled encoding to reduce VRAM usage during the encoding phase"
                 ),
+                io.Int.Input("temporal_slicing",
+                    default=4,
+                    min=1,
+                    max=32,
+                    step=1,
+                    optional=True,
+                    tooltip=(
+                        "Temporal slicing chunk size for VAE processing (default: 4).\n"
+                        "Controls how many frames the VAE processes simultaneously in the temporal dimension.\n"
+                        "Lower values (e.g., 2 or 1) drastically reduce VRAM usage but are slower.\n"
+                        "Higher values (e.g., 8) increase VRAM usage but encode/decode faster."
+                    )
+                ),
                 io.Int.Input("encode_tile_size",
                     default=1024,
                     min=64,
@@ -164,6 +177,7 @@ class SeedVR2LoadVAEModel(io.ComfyNode):
     @classmethod
     def execute(cls, model: str, device: str, offload_device: str = "none",
                      cache_model: bool = False, encode_tiled: bool = False,
+                     temporal_slicing: int = 4,
                      encode_tile_size: int = 512, encode_tile_overlap: int = 64,
                      decode_tiled: bool = False, decode_tile_size: int = 512, 
                      decode_tile_overlap: int = 64, tile_debug: str = "false",
@@ -178,6 +192,7 @@ class SeedVR2LoadVAEModel(io.ComfyNode):
             offload_device: Device to offload model to when not in use
             cache_model: Whether to keep model loaded between runs
             encode_tiled: Enable tiled encoding
+            temporal_slicing: Number of frames to process simultaneously
             encode_tile_size: Tile size for encoding
             encode_tile_overlap: Tile overlap for encoding
             decode_tiled: Enable tiled decoding
@@ -207,6 +222,7 @@ class SeedVR2LoadVAEModel(io.ComfyNode):
             "offload_device": offload_device,
             "cache_model": cache_model,
             "encode_tiled": encode_tiled,
+            "temporal_slicing": temporal_slicing,
             "encode_tile_size": encode_tile_size,
             "encode_tile_overlap": encode_tile_overlap,
             "decode_tiled": decode_tiled,

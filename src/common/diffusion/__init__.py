@@ -23,6 +23,7 @@ from .config import (
 )
 from .samplers.base import Sampler
 from .samplers.euler import EulerSampler
+from .samplers.dpm_solver import DPMSolverSampler
 from .schedules.base import Schedule
 from .schedules.lerp import LinearInterpolationSchedule
 from .timesteps.base import SamplingTimesteps, Timesteps
@@ -42,6 +43,7 @@ __all__ = [
     # Samplers
     "Sampler",
     "EulerSampler",
+    "DPMSolverSampler",
     # Timesteps
     "Timesteps",
     "SamplingTimesteps",

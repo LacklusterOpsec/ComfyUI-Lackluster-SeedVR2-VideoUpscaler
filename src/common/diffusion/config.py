@@ -21,6 +21,7 @@ from omegaconf import DictConfig
 
 from .samplers.base import Sampler
 from .samplers.euler import EulerSampler
+from .samplers.dpm_solver import DPMSolverSampler
 from .schedules.base import Schedule
 from .schedules.lerp import LinearInterpolationSchedule
 from .timesteps.base import SamplingTimesteps
@@ -51,6 +52,12 @@ def create_sampler_from_config(
     """
     if config.type == "euler":
         return EulerSampler(
+            schedule=schedule,
+            timesteps=timesteps,
+            prediction_type=config.prediction_type,
+        )
+    elif config.type == "dpm_2m":
+        return DPMSolverSampler(
             schedule=schedule,
             timesteps=timesteps,
             prediction_type=config.prediction_type,

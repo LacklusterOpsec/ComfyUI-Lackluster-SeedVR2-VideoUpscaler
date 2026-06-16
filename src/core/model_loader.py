@@ -522,9 +522,12 @@ def materialize_model(runner: VideoDiffusionInfer, model_type: str, device: torc
     # Start materialization
     debug.start_timer(f"{model_type}_materialize")
     
+    # Get quantization setting for DiT
+    quantization = getattr(config.dit, 'quantization', 'none') if is_dit else 'none'
+    
     # Load weights (this materializes from meta to target device)
     model = _load_model_weights(model, checkpoint_path, target_device, True,
-                               model_type_upper, offload_reason, debug, override_dtype) 
+                               model_type_upper, offload_reason, debug, override_dtype, quantization) 
    
     # Apply model-specific configurations (includes BlockSwap and torch.compile)
     # Import here to avoid circular dependency 
@@ -546,7 +549,8 @@ def materialize_model(runner: VideoDiffusionInfer, model_type: str, device: torc
 
 def _load_model_weights(model: torch.nn.Module, checkpoint_path: str, target_device: torch.device, 
                         used_meta: bool, model_type: str, cpu_reason: str, 
-                        debug: Optional['Debug'] = None, override_dtype: Optional[torch.dtype] = None) -> torch.nn.Module:
+                        debug: Optional['Debug'] = None, override_dtype: Optional[torch.dtype] = None,
+                        quantization: str = "none") -> torch.nn.Module:
     """
     Load model weights from checkpoint file with optimized GGUF support.
     
@@ -562,6 +566,7 @@ def _load_model_weights(model: torch.nn.Module, checkpoint_path: str, target_dev
         cpu_reason: Reason string if using CPU
         debug: Debug instance
         override_dtype: Optional dtype override for weights
+        quantization: Dynamic quantization mode ('none', '8-bit (bitsandbytes)', '4-bit (bitsandbytes)')
         
     Returns:
         Model with loaded weights
@@ -590,7 +595,7 @@ def _load_model_weights(model: torch.nn.Module, checkpoint_path: str, target_dev
     if checkpoint_path.endswith('.gguf'):
         model = _load_gguf_weights(model, state, used_meta, model_type_lower, debug)
     else:
-        model = _load_standard_weights(model, state, used_meta, model_type, model_type_lower, debug)
+        model = _load_standard_weights(model, state, used_meta, model_type, model_type_lower, debug, quantization)
     
     # Clean up state dict
     del state
@@ -817,10 +822,63 @@ def initialize_meta_buffers_impl(model: torch.nn.Module, target_device: torch.de
 
 def _load_standard_weights(model: torch.nn.Module, state: Dict[str, torch.Tensor], 
                           used_meta: bool, model_type: str, model_type_lower: str,
-                          debug: Optional['Debug'] = None) -> torch.nn.Module:
-    """Load standard (non-GGUF) weights into model."""
+                          debug: Optional['Debug'] = None, quantization: str = "none") -> torch.nn.Module:
+    """Load standard (non-GGUF) weights into model with optional dynamic quantization."""
+    
+    if quantization != "none":
+        try:
+            import bitsandbytes as bnb
+            debug.log(f"Applying {quantization} quantization via bitsandbytes", category=model_type_lower)
+            
+            # Helper to replace linear layers with bnb versions
+            def replace_linear_with_bnb(module, qtype="8-bit"):
+                has_been_replaced = False
+                for name, child in module.named_children():
+                    if isinstance(child, torch.nn.Linear):
+                        # Get device of original child
+                        device = next(child.parameters()).device if list(child.parameters()) else torch.device('cpu')
+                        
+                        if "8-bit" in qtype:
+                            bnb_linear = bnb.nn.Linear8bitLt(
+                                child.in_features, child.out_features, 
+                                child.bias is not None, has_fp16_weights=False, threshold=6.0
+                            )
+                        else:
+                            bnb_linear = bnb.nn.Linear4bit(
+                                child.in_features, child.out_features, 
+                                child.bias is not None, compute_dtype=torch.bfloat16, quant_type="nf4"
+                            )
+                        
+                        # Move to correct device
+                        bnb_linear = bnb_linear.to(device)
+                        setattr(module, name, bnb_linear)
+                        has_been_replaced = True
+                    else:
+                        has_been_replaced = replace_linear_with_bnb(child, qtype) or has_been_replaced
+                return has_been_replaced
+                
+            debug.start_timer(f"{model_type_lower}_bnb_replace")
+            # If model is on meta device, materialize it with empty weights first so we can use assign=False
+            if used_meta:
+                # Find target device from state dict
+                target_device = next(iter(state.values())).device if state else torch.device('cpu')
+                for module in model.modules():
+                    for name, param in module.named_parameters(recurse=False):
+                        if param.device.type == 'meta':
+                            module.register_parameter(name, torch.nn.Parameter(torch.empty_like(param, device=target_device)))
+                    for name, buffer in module.named_buffers(recurse=False):
+                        if buffer.device.type == 'meta':
+                            module.register_buffer(name, torch.zeros_like(buffer, device=target_device))
+                
+            replace_linear_with_bnb(model, quantization)
+            debug.end_timer(f"{model_type_lower}_bnb_replace", "Replaced linear layers with bnb layers")
+        except ImportError:
+            debug.log(f"BitsAndBytes not installed. Please run: pip install bitsandbytes", level="ERROR", category=model_type_lower, force=True)
+            raise ImportError(f"Cannot use {quantization} without bitsandbytes installed.")
+    
     debug.start_timer(f"{model_type_lower}_state_apply")
-    model.load_state_dict(state, strict=False, assign=True)
+    assign_weights = (quantization == "none") # bitsandbytes requires assign=False
+    model.load_state_dict(state, strict=False, assign=assign_weights)
     
     action = "materialized" if used_meta else "applied"
     debug.end_timer(f"{model_type_lower}_state_apply", f"{model_type} weights {action}")

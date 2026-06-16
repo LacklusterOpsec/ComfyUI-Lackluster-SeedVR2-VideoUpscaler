@@ -101,7 +101,7 @@ class NaSwinAttention(MMWindowAttention):
 
         window_partition, window_reverse, window_shape, window_count = cache_win(
             "win_transform",
-            lambda: na.window_idx(vid_shape, make_window),
+            lambda: na.window_idx(vid_shape, make_window, fused_window_attn=getattr(self, "fused_window_attn", False)),
         )
         vid_qkv_win = window_partition(vid_qkv)
 
@@ -235,14 +235,67 @@ class NaMMSRTransformerBlock(MMWindowTransformerBlock):
             "branch_tag": MMArg("vid", "txt"),
         }
 
-        vid_attn, txt_attn = self.attn_norm(vid, txt)
-        vid_attn, txt_attn = self.ada(vid_attn, txt_attn, layer="attn", mode="in", **ada_kwargs)
+        fused_adaln = getattr(self, "fused_adaln", False)
+        
+        if fused_adaln:
+            try:
+                from ....optimization.fused_adaln import fused_adaln_forward
+                vid_res, txt_res = self.ada(vid, txt, layer="attn", mode="in_fused", **ada_kwargs)
+                
+                vid_norm_module = self.attn_norm.vid if not self.attn_norm.shared_weights else self.attn_norm.all
+                vid_scaleA, vid_scaleB, vid_shiftA, vid_shiftB = vid_res
+                vid_attn = fused_adaln_forward(vid, vid_scaleA, vid_shiftA, vid_scaleB, vid_shiftB, getattr(vid_norm_module, "eps", 1e-5))
+                
+                if not self.attn_norm.vid_only:
+                    txt_norm_module = self.attn_norm.txt if not self.attn_norm.shared_weights else self.attn_norm.all
+                    txt_scaleA, txt_scaleB, txt_shiftA, txt_shiftB = txt_res
+                    txt_attn = fused_adaln_forward(txt, txt_scaleA, txt_shiftA, txt_scaleB, txt_shiftB, getattr(txt_norm_module, "eps", 1e-5))
+                else:
+                    txt_attn = txt
+            except BaseException as e:
+                vid_attn, txt_attn = self.attn_norm(vid, txt)
+                vid_attn, txt_attn = self.ada(vid_attn, txt_attn, layer="attn", mode="in", **ada_kwargs)
+        else:
+            vid_attn, txt_attn = self.attn_norm(vid, txt)
+            vid_attn, txt_attn = self.ada(vid_attn, txt_attn, layer="attn", mode="in", **ada_kwargs)
         vid_attn, txt_attn = self.attn(vid_attn, txt_attn, vid_shape, txt_shape, cache)
         vid_attn, txt_attn = self.ada(vid_attn, txt_attn, layer="attn", mode="out", **ada_kwargs)
         vid_attn, txt_attn = (vid_attn + vid), (txt_attn + txt)
 
-        vid_mlp, txt_mlp = self.mlp_norm(vid_attn, txt_attn)
-        vid_mlp, txt_mlp = self.ada(vid_mlp, txt_mlp, layer="mlp", mode="in", **ada_kwargs)
+        if fused_adaln:
+            try:
+                from ....optimization.fused_adaln import fused_adaln_forward
+                vid_res, txt_res = self.ada(vid_attn, txt_attn, layer="mlp", mode="in_fused", **ada_kwargs)
+                
+                vid_norm_module = self.mlp_norm.vid if not self.mlp_norm.shared_weights else self.mlp_norm.all
+                vid_scaleA, vid_scaleB, vid_shiftA, vid_shiftB = vid_res
+                vid_mlp = fused_adaln_forward(vid_attn, vid_scaleA, vid_shiftA, vid_scaleB, vid_shiftB, getattr(vid_norm_module, "eps", 1e-5))
+                
+                if not self.mlp_norm.vid_only:
+                    txt_norm_module = self.mlp_norm.txt if not self.mlp_norm.shared_weights else self.mlp_norm.all
+                    txt_scaleA, txt_scaleB, txt_shiftA, txt_shiftB = txt_res
+                    txt_mlp = fused_adaln_forward(txt_attn, txt_scaleA, txt_shiftA, txt_scaleB, txt_shiftB, getattr(txt_norm_module, "eps", 1e-5))
+                else:
+                    txt_mlp = txt_attn
+                    
+                if vid_mlp.dtype != vid_attn.dtype:
+                    vid_mlp = vid_mlp.to(vid_attn.dtype)
+                if not self.mlp_norm.vid_only and txt_mlp.dtype != txt_attn.dtype:
+                    txt_mlp = txt_mlp.to(txt_attn.dtype)
+            except BaseException as e:
+                vid_mlp, txt_mlp = self.mlp_norm(vid_attn, txt_attn)
+                if vid_mlp.dtype != vid_attn.dtype:
+                    vid_mlp = vid_mlp.to(vid_attn.dtype)
+                if txt_mlp.dtype != txt_attn.dtype:
+                    txt_mlp = txt_mlp.to(txt_attn.dtype)
+                vid_mlp, txt_mlp = self.ada(vid_mlp, txt_mlp, layer="mlp", mode="in", **ada_kwargs)
+        else:
+            vid_mlp, txt_mlp = self.mlp_norm(vid_attn, txt_attn)
+            if vid_mlp.dtype != vid_attn.dtype:
+                vid_mlp = vid_mlp.to(vid_attn.dtype)
+            if txt_mlp.dtype != txt_attn.dtype:
+                txt_mlp = txt_mlp.to(txt_attn.dtype)
+            vid_mlp, txt_mlp = self.ada(vid_mlp, txt_mlp, layer="mlp", mode="in", **ada_kwargs)
         vid_mlp, txt_mlp = self.mlp(vid_mlp, txt_mlp)
         vid_mlp, txt_mlp = self.ada(vid_mlp, txt_mlp, layer="mlp", mode="out", **ada_kwargs)
         vid_mlp, txt_mlp = (vid_mlp + vid_attn), (txt_mlp + txt_attn)

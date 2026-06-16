@@ -112,6 +112,26 @@ class SeedVR2VideoUpscaler(io.ComfyNode):
                         "Useful to prevent excessive VRAM usage on extreme aspect ratios."
                     )
                 ),
+                io.Int.Input("steps",
+                    default=50,
+                    min=1,
+                    max=1000,
+                    step=1,
+                    tooltip=(
+                        "Number of diffusion inference steps (default: 50).\n"
+                        "Higher values (50-100) are recommended for the Euler sampler.\n"
+                        "Lower values (15-25) can be used with fast samplers like DPM++ 2M."
+                    )
+                ),
+                io.Combo.Input("sampler_name",
+                    options=["euler", "dpm_2m"],
+                    default="euler",
+                    tooltip=(
+                        "Sampling algorithm for generation (default: euler).\n"
+                        "• euler: Standard Flow Matching sampler (requires 50+ steps)\n"
+                        "• dpm_2m: DPM-Solver++ 2M for Flow Matching (requires 15-25 steps)"
+                    )
+                ),
                 io.Int.Input("batch_size",
                     default=5,
                     min=1,
@@ -230,7 +250,8 @@ class SeedVR2VideoUpscaler(io.ComfyNode):
     
     @classmethod
     def execute(cls, image: torch.Tensor, dit: Dict[str, Any], vae: Dict[str, Any], 
-                seed: int, resolution: int = 1080, max_resolution: int = 0, batch_size: int = 5,
+                seed: int, resolution: int = 1080, max_resolution: int = 0, steps: int = 50,
+                sampler_name: str = "euler", batch_size: int = 5,
                 uniform_batch_size: bool = False, temporal_overlap: int = 0, prepend_frames: int = 0,
                 color_correction: str = "wavelet", input_noise_scale: float = 0.0,
                 latent_noise_scale: float = 0.0, offload_device: str = "none", 
@@ -249,6 +270,8 @@ class SeedVR2VideoUpscaler(io.ComfyNode):
             seed: Random seed for reproducible generation
             resolution: Target resolution for shortest edge (maintains aspect ratio)
             max_resolution: Maximum resolution for any edge (0 = no limit)
+            steps: Number of diffusion steps
+            sampler_name: Sampler algorithm to use
             batch_size: Frames per batch (minimum 5 for temporal consistency)
             uniform_batch_size: Whether to pad final batch to match batch_size
             temporal_overlap: Overlapping frames between batches (0-16)
@@ -404,8 +427,9 @@ class SeedVR2VideoUpscaler(io.ComfyNode):
         vae_offload_device = torch.device(vae_offload_str) if vae_offload_str != "none" else None
         tensor_offload_device = torch.device(offload_device) if offload_device != "none" else None
 
-        # VAE tiling configuration
+        # VAE tiling and slicing configuration
         encode_tiled = vae.get("encode_tiled", False)
+        temporal_slicing = vae.get("temporal_slicing", 4)
         encode_tile_size = vae.get("encode_tile_size", 512)
         encode_tile_overlap = vae.get("encode_tile_overlap", 64)
         decode_tiled = vae.get("decode_tiled", False)
@@ -418,6 +442,7 @@ class SeedVR2VideoUpscaler(io.ComfyNode):
         dit_tiled = dit.get("dit_tiled", False)
         dit_tile_size = max(1, int(dit.get("dit_tile_size", 128)))
         dit_tile_overlap = max(0, int(dit.get("dit_tile_overlap", 16)))
+        quantization = dit.get("quantization", "none")
         vae_torch_compile_args = vae.get("torch_compile_args")
         
         # Print header
@@ -468,6 +493,7 @@ class SeedVR2VideoUpscaler(io.ComfyNode):
                 vae_id=vae_id,
                 block_swap_config=block_swap_config,
                 encode_tiled=encode_tiled,
+                temporal_slicing=temporal_slicing,
                 encode_tile_size=(encode_tile_size, encode_tile_size),
                 encode_tile_overlap=(encode_tile_overlap, encode_tile_overlap),
                 decode_tiled=decode_tiled,
@@ -478,6 +504,7 @@ class SeedVR2VideoUpscaler(io.ComfyNode):
                 dit_tile_size=(dit_tile_size, dit_tile_size),
                 dit_tile_overlap=(dit_tile_overlap, dit_tile_overlap),
                 attention_mode=attention_mode,
+                quantization=quantization,
                 torch_compile_args_dit=dit_torch_compile_args,
                 torch_compile_args_vae=vae_torch_compile_args
             )
@@ -486,6 +513,11 @@ class SeedVR2VideoUpscaler(io.ComfyNode):
             runner._seedvr2_runner_tainted = False
             runner._seedvr2_dit_phase_cleaned = False
             runner._seedvr2_vae_phase_cleaned = False
+            
+            # Reconfigure diffusion with user-selected sampler and steps
+            runner.config.diffusion.sampler.type = sampler_name
+            runner.config.diffusion.timesteps.sampling.steps = steps
+            runner.configure_diffusion(dtype=ctx['compute_dtype'])
 
             # If both models were already cached but the runner template had been
             # invalidated or missing, cache this freshly configured runner now.
