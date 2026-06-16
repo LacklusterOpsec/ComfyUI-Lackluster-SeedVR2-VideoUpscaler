@@ -68,7 +68,7 @@ class DPMSolverSampler(Sampler):
             x = x + dx
             
             last_v = v.clone()
-            last_h = h.clone()
+            last_h = h.clone() if isinstance(h, torch.Tensor) else h
             
             del pred, pred_x_0, pred_x_T, v, h, dx
             

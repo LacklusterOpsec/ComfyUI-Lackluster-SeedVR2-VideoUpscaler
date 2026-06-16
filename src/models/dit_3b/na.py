@@ -644,7 +644,7 @@ def window_idx(
                 tgt_shape,
                 tgt_windows,
             )
-        except BaseException:
+        except Exception:
             pass
             
     return (

@@ -42,6 +42,10 @@ class Cache:
             cache=self.cache,
         )
 
-    def get(self, key: str):
+    def get(self, key: str, default=None):
         key = self.prefix + key
-        return self.cache[key]
+        return self.cache.get(key, default)
+
+    def set(self, key: str, value):
+        key = self.prefix + key
+        self.cache[key] = value

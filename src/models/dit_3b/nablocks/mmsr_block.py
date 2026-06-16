@@ -123,7 +123,7 @@ class NaMMSRTransformerBlock(nn.Module):
                     txt_attn = fused_adaln_forward(txt, txt_scaleA, txt_shiftA, txt_scaleB, txt_shiftB, getattr(txt_norm_module, "eps", 1e-5))
                 else:
                     txt_attn = txt
-            except BaseException as e:
+            except Exception as e:
                 vid_attn, txt_attn = self.attn_norm(vid, txt)
                 vid_attn, txt_attn = self.ada(vid_attn, txt_attn, layer="attn", mode="in", **ada_kwargs)
         else:
@@ -156,7 +156,7 @@ class NaMMSRTransformerBlock(nn.Module):
                 if not self.mlp_norm.vid_only and txt_mlp.dtype != txt_attn.dtype:
                     txt_mlp = txt_mlp.to(txt_attn.dtype)
                 # END BY NUMZ
-            except BaseException as e:
+            except Exception as e:
                 vid_mlp, txt_mlp = self.mlp_norm(vid_attn, txt_attn)
                 # ADD BY NUMZ
                 if vid_mlp.dtype != vid_attn.dtype:
