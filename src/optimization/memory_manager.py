@@ -282,13 +282,27 @@ def get_basic_vram_info(device: Optional[torch.device] = None) -> Dict[str, Any]
         return {"error": f"Failed to get memory info: {str(e)}"}
 
 
+def safe_print(text: str):
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        try:
+            encoding = sys.stdout.encoding or 'ascii'
+            print(text.encode(encoding, errors='replace').decode(encoding))
+        except Exception:
+            try:
+                print(text.encode('ascii', errors='replace').decode('ascii'))
+            except Exception:
+                pass
+
+
 # Initial VRAM check at module load
 vram_info = get_basic_vram_info(device=None)
 if "error" not in vram_info:
     backend = "MPS" if is_mps_available() else "CUDA"
-    print(f"📊 Initial {backend} memory: {vram_info['free_gb']:.2f}GB free / {vram_info['total_gb']:.2f}GB total")
+    safe_print(f"📊 Initial {backend} memory: {vram_info['free_gb']:.2f}GB free / {vram_info['total_gb']:.2f}GB total")
 else:
-    print(f"⚠️ Memory check failed: {vram_info['error']} - No available backend!")
+    safe_print(f"⚠️ Memory check failed: {vram_info['error']} - No available backend!")
 
 
 def get_vram_usage(device: Optional[torch.device] = None, debug: Optional['Debug'] = None) -> Tuple[float, float, float, float]:
@@ -1330,10 +1344,17 @@ def cleanup_dit(runner: Any, debug: Optional['Debug'] = None, cache_model: bool 
             else:
                 offload_target = getattr(runner, '_dit_offload_device', None)
                 if offload_target is None or offload_target == 'none':
-                    offload_target = torch.device('cpu')
-                reason = "model caching" if cache_model else "releasing GPU memory"
-                manage_model_device(model=runner.dit, target_device=offload_target, model_name="DiT", 
-                                   debug=debug, reason=reason, runner=runner)
+                    if cache_model:
+                        if debug:
+                            debug.log("DiT model stays pinned to GPU for caching", category="cleanup")
+                    else:
+                        offload_target = torch.device('cpu')
+                        manage_model_device(model=runner.dit, target_device=offload_target, model_name="DiT", 
+                                           debug=debug, reason="releasing GPU memory", runner=runner)
+                else:
+                    reason = "model caching" if cache_model else "releasing GPU memory"
+                    manage_model_device(model=runner.dit, target_device=offload_target, model_name="DiT", 
+                                       debug=debug, reason=reason, runner=runner)
         elif param_device.type == 'meta' and debug:
             debug.log("DiT on meta device - keeping structure for cache", category="cleanup")
     except StopIteration:
@@ -1417,10 +1438,17 @@ def cleanup_vae(runner: Any, debug: Optional['Debug'] = None, cache_model: bool 
             else:
                 offload_target = getattr(runner, '_vae_offload_device', None)
                 if offload_target is None or offload_target == 'none':
-                    offload_target = torch.device('cpu')
-                reason = "model caching" if cache_model else "releasing GPU memory"
-                manage_model_device(model=runner.vae, target_device=offload_target, model_name="VAE", 
-                                   debug=debug, reason=reason, runner=runner)
+                    if cache_model:
+                        if debug:
+                            debug.log("VAE model stays pinned to GPU for caching", category="cleanup")
+                    else:
+                        offload_target = torch.device('cpu')
+                        manage_model_device(model=runner.vae, target_device=offload_target, model_name="VAE", 
+                                           debug=debug, reason="releasing GPU memory", runner=runner)
+                else:
+                    reason = "model caching" if cache_model else "releasing GPU memory"
+                    manage_model_device(model=runner.vae, target_device=offload_target, model_name="VAE", 
+                                       debug=debug, reason=reason, runner=runner)
         elif param_device.type == 'meta' and debug:
             debug.log("VAE on meta device - keeping structure for cache", category="cleanup")
     except StopIteration:

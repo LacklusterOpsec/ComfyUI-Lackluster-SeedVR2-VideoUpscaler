@@ -132,6 +132,7 @@ class NaMMSRTransformerBlock(nn.Module):
         vid_attn, txt_attn = self.attn(vid_attn, txt_attn, vid_shape, txt_shape, cache)
         vid_attn, txt_attn = self.ada(vid_attn, txt_attn, layer="attn", mode="out", **ada_kwargs)
         vid_attn, txt_attn = (vid_attn + vid), (txt_attn + txt)
+        del vid, txt  # <--- explicitly free the input tensors early!
 
         if fused_adaln:
             try:
@@ -176,5 +177,6 @@ class NaMMSRTransformerBlock(nn.Module):
         vid_mlp, txt_mlp = self.mlp(vid_mlp, txt_mlp)
         vid_mlp, txt_mlp = self.ada(vid_mlp, txt_mlp, layer="mlp", mode="out", **ada_kwargs)
         vid_mlp, txt_mlp = (vid_mlp + vid_attn), (txt_mlp + txt_attn)
+        del vid_attn, txt_attn  # <--- explicitly free intermediate tensors early!
 
         return vid_mlp, txt_mlp, vid_shape, txt_shape

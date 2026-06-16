@@ -223,11 +223,13 @@ class MMWindowTransformerBlock(nn.Module):
         vid_attn, txt_attn = self.attn(vid_attn, txt_attn, txt_mask=txt_mask)
         vid_attn, txt_attn = self.ada(vid_attn, txt_attn, emb=emb, layer="attn", mode="out")
         vid_attn, txt_attn = (vid_attn + vid), (txt_attn + txt)
+        del vid, txt  # <--- explicitly free the input tensors early!
 
         vid_mlp, txt_mlp = self.mlp_norm(vid_attn, txt_attn)
         vid_mlp, txt_mlp = self.ada(vid_mlp, txt_mlp, emb=emb, layer="mlp", mode="in")
         vid_mlp, txt_mlp = self.mlp(vid_mlp, txt_mlp)
         vid_mlp, txt_mlp = self.ada(vid_mlp, txt_mlp, emb=emb, layer="mlp", mode="out")
         vid_mlp, txt_mlp = (vid_mlp + vid_attn), (txt_mlp + txt_attn)
+        del vid_attn, txt_attn  # <--- explicitly free intermediate tensors early!
 
         return vid_mlp, txt_mlp

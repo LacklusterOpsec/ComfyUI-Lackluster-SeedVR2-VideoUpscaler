@@ -199,7 +199,8 @@ def _describe_attention_mode(attention_mode: Optional[str]) -> str:
 def _describe_tiling_config(encode_tiled: bool, encode_tile_size: Optional[Tuple[int, int]], 
                            encode_tile_overlap: Optional[Tuple[int, int]],
                            decode_tiled: bool, decode_tile_size: Optional[Tuple[int, int]], 
-                           decode_tile_overlap: Optional[Tuple[int, int]]) -> str:
+                           decode_tile_overlap: Optional[Tuple[int, int]],
+                           temporal_slicing: Optional[int] = None, **kwargs) -> str:
     """
     Generate human-readable description of VAE tiling configuration.
     
@@ -851,6 +852,7 @@ def configure_runner(
     vae_id: Optional[int] = None,
     block_swap_config: Optional[Dict[str, Any]] = None,
     encode_tiled: bool = False,
+    temporal_slicing: int = 4,
     encode_tile_size: Optional[Tuple[int, int]] = None,
     encode_tile_overlap: Optional[Tuple[int, int]] = None,
     decode_tiled: bool = False,
@@ -946,6 +948,7 @@ def configure_runner(
             cache_context.get('vae_id') if vae_cache else None,
             encode_tiled, encode_tile_size, encode_tile_overlap,
             decode_tiled, decode_tile_size, decode_tile_overlap,
+            temporal_slicing,
             tile_debug, dit_tiled, dit_tile_size, dit_tile_overlap, cuda_graphs, fused_adaln, fused_window_attn, attention_mode,
             torch_compile_args_dit, torch_compile_args_vae,
             block_swap_config, debug
@@ -1071,6 +1074,7 @@ def _configure_runner_settings(
     decode_tiled: bool,
     decode_tile_size: Optional[Tuple[int, int]],
     decode_tile_overlap: Optional[Tuple[int, int]],
+    temporal_slicing: int,
     tile_debug: str,
     dit_tiled: bool,
     dit_tile_size: Optional[Tuple[int, int]],
@@ -1143,8 +1147,12 @@ def _configure_runner_settings(
         'encode_tile_overlap': encode_tile_overlap,
         'decode_tiled': decode_tiled,
         'decode_tile_size': decode_tile_size,
-        'decode_tile_overlap': decode_tile_overlap
+        'decode_tile_overlap': decode_tile_overlap,
+        'temporal_slicing': temporal_slicing
     }
+    
+    if hasattr(runner, 'config') and hasattr(runner.config, 'vae') and hasattr(runner.config.vae, 'slicing'):
+        runner.config.vae.slicing.split_size = temporal_slicing
     
     # Store device configuration on runner for submodule access (e.g., BlockSwap, Cleanup)
     runner._dit_device = ctx['dit_device']

@@ -539,9 +539,10 @@ class VideoDiffusionInfer():
             )
             self._first_tiled_step = False
             
-        for y0 in y_starts:
+        kv_cache = {} # Shared cache for KV sharing between tiles
+        for iy, y0 in enumerate(y_starts):
             y1 = min(y0 + tile_h, full_h.item())
-            for x0 in x_starts:
+            for ix, x0 in enumerate(x_starts):
                 x1 = min(x0 + tile_w, full_w.item())
                 
                 vid_tile = vid_unflattened[:, y0:y1, x0:x1, :]
@@ -553,7 +554,9 @@ class VideoDiffusionInfer():
                     txt=txt, 
                     vid_shape=tile_shape, 
                     txt_shape=txt_shape, 
-                    timestep=timestep
+                    timestep=timestep,
+                    tile_coords=(iy, ix),
+                    kv_cache=kv_cache
                 ).vid_sample
                 
                 tile_out = tile_out_flat.view(T, y1 - y0, x1 - x0, -1)

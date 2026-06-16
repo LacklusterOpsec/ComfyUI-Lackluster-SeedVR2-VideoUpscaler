@@ -13,7 +13,7 @@
 # // limitations under the License.
 
 from dataclasses import dataclass
-from typing import Optional, Tuple, Union, Callable
+from typing import Optional, Tuple, Union, Callable, Dict
 import torch
 from torch import nn
 
@@ -27,13 +27,13 @@ from .nablocks import get_nablock
 from .normalization import get_norm_layer
 from .patch import NaPatchIn, NaPatchOut
 
-# Fake func, no checkpointing is required for inference
-def gradient_checkpointing(module: Union[Callable, nn.Module], *args, enabled: bool, **kwargs):
-    return module(*args, **kwargs)
-
 @dataclass
 class NaDiTOutput:
     vid_sample: torch.Tensor
+
+# Fake func, no checkpointing is required for inference
+def gradient_checkpointing(module: Union[Callable, nn.Module], *args, enabled: bool, **kwargs):
+    return module(*args, **kwargs)
 
 
 class NaDiT(nn.Module):
@@ -157,6 +157,8 @@ class NaDiT(nn.Module):
         txt_shape: torch.LongTensor,  # b 1
         timestep: Union[int, float, torch.IntTensor, torch.FloatTensor],  # b
         disable_cache: bool = True,  # for test
+        tile_coords: Optional[Tuple[int, int, int, int]] = None,
+        kv_cache: Optional[Dict] = None,
     ):
         # Text input.
         if txt_shape.size(-1) == 1 and self.need_txt_repeat:
@@ -174,17 +176,36 @@ class NaDiT(nn.Module):
 
         # Body
         cache = Cache(disable=disable_cache)
+        if tile_coords is not None:
+            cache.set("tile_coords", tile_coords)
+        if kv_cache is not None:
+            cache.set("kv_cache", kv_cache)
+        
+        # We wrap the state in a list/dict so we can pop the tensors out, transferring 
+        # ownership entirely to the block's stack frame.
+        state = {"vid": vid, "txt": txt}
+        del vid, txt  # Remove local references
+        
         for i, block in enumerate(self.blocks):
-            vid, txt, vid_shape, txt_shape = gradient_checkpointing(
+            # Pop them out of the state dictionary so the ONLY reference is passed into the block
+            v = state.pop("vid")
+            t = state.pop("txt")
+            
+            v_out, t_out, vid_shape, txt_shape = gradient_checkpointing(
                 enabled=(self.gradient_checkpointing and self.training),
                 module=block,
-                vid=vid,
-                txt=txt,
+                vid=v,
+                txt=t,
                 vid_shape=vid_shape,
                 txt_shape=txt_shape,
                 emb=emb,
                 cache=cache,
             )
+            state["vid"] = v_out
+            state["txt"] = t_out
+
+        vid = state.pop("vid")
+        txt = state.pop("txt")
 
         vid, vid_shape = self.vid_out(vid, vid_shape, cache)
         return NaDiTOutput(vid_sample=vid)
@@ -317,6 +338,8 @@ class NaDiTUpscaler(nn.Module):
         timestep: Union[int, float, torch.IntTensor, torch.FloatTensor],  # b
         downscale: Union[int, float, torch.IntTensor, torch.FloatTensor],  # b
         disable_cache: bool = False,  # for test
+        tile_coords: Optional[Tuple[int, int, int, int]] = None,
+        kv_cache: Optional[Dict] = None,
     ):
 
         # Text input.
@@ -337,17 +360,33 @@ class NaDiTUpscaler(nn.Module):
 
         # Body
         cache = Cache(disable=disable_cache)
+        if tile_coords is not None:
+            cache.set("tile_coords", tile_coords)
+        if kv_cache is not None:
+            cache.set("kv_cache", kv_cache)
+        
+        state = {"vid": vid, "txt": txt}
+        del vid, txt
+        
         for i, block in enumerate(self.blocks):
-            vid, txt, vid_shape, txt_shape = gradient_checkpointing(
+            v = state.pop("vid")
+            t = state.pop("txt")
+            
+            v_out, t_out, vid_shape, txt_shape = gradient_checkpointing(
                 enabled=(self.gradient_checkpointing and self.training),
                 module=block,
-                vid=vid,
-                txt=txt,
+                vid=v,
+                txt=t,
                 vid_shape=vid_shape,
                 txt_shape=txt_shape,
                 emb=emb,
                 cache=cache,
             )
+            state["vid"] = v_out
+            state["txt"] = t_out
+
+        vid = state.pop("vid")
+        txt = state.pop("txt")
 
         vid, vid_shape = self.vid_out(vid, vid_shape, cache)
         return NaDiTOutput(vid_sample=vid)

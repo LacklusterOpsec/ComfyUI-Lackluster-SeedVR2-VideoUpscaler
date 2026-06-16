@@ -241,19 +241,95 @@ class NaSwinAttention(NaMMAttention):
             else:
                 vid_q, vid_k = self.rope(vid_q, vid_k, window_shape, cache_win)
             
+        # KV Sharing across tiles
+        tile_coords = cache.get("tile_coords", None)
+        kv_cache = cache.get("kv_cache", None)
+        
+        if tile_coords is not None and kv_cache is not None:
+            iy, ix = tile_coords
+            kv_namespace = cache.namespace("kv")
+            block_idx = kv_namespace.get("block_idx", 0)
+            kv_namespace.set("block_idx", block_idx + 1)
+            
+            B = vid_shape.shape[0]
+            T, H, W = vid_shape[0].tolist()
+            tt, hh, ww = window_shape[0].tolist()
+            nt, nh, nw = T // tt, H // hh, W // ww
+            
+            window_size = tt * hh * ww
+            _, h_dim, d_dim = vid_k.shape
+            
+            k_grid = vid_k.view(B, nt, nh, nw, window_size, h_dim, d_dim)
+            v_grid = vid_v.view(B, nt, nh, nw, window_size, h_dim, d_dim)
+            
+            right_k = k_grid[:, :, :, nw-1:nw].clone()
+            right_v = v_grid[:, :, :, nw-1:nw].clone()
+            bottom_k = k_grid[:, :, nh-1:nh, :].clone()
+            bottom_v = v_grid[:, :, nh-1:nh, :].clone()
+            
+            kv_cache[(block_idx, iy, ix)] = {
+                'right_k': right_k, 'right_v': right_v,
+                'bottom_k': bottom_k, 'bottom_v': bottom_v
+            }
+            
+            left_dict = kv_cache.get((block_idx, iy, ix - 1)) if ix > 0 else None
+            top_dict = kv_cache.get((block_idx, iy - 1, ix)) if iy > 0 else None
+            
+            left_k = left_dict['right_k'] if left_dict else None
+            left_v = left_dict['right_v'] if left_dict else None
+            top_k = top_dict['bottom_k'] if top_dict else None
+            top_v = top_dict['bottom_v'] if top_dict else None
+            
+            if left_k is not None or top_k is not None:
+                new_k_list, new_v_list, len_list = [], [], []
+                for b in range(B):
+                    for t in range(nt):
+                        for y in range(nh):
+                            for x in range(nw):
+                                cur_k = k_grid[b, t, y, x]
+                                cur_v = v_grid[b, t, y, x]
+                                
+                                to_cat_k, to_cat_v = [cur_k], [cur_v]
+                                
+                                if x == 0 and left_k is not None:
+                                    to_cat_k.append(left_k[b, t, y, 0])
+                                    to_cat_v.append(left_v[b, t, y, 0])
+                                    
+                                if y == 0 and top_k is not None:
+                                    to_cat_k.append(top_k[b, t, 0, x])
+                                    to_cat_v.append(top_v[b, t, 0, x])
+                                    
+                                cat_k = torch.cat(to_cat_k, dim=0)
+                                cat_v = torch.cat(to_cat_v, dim=0)
+                                
+                                new_k_list.append(cat_k)
+                                new_v_list.append(cat_v)
+                                len_list.append(cat_k.shape[0])
+                                
+                vid_k = torch.cat(new_k_list, dim=0)
+                vid_v = torch.cat(new_v_list, dim=0)
+                vid_len_win_k = torch.tensor(len_list, dtype=torch.long, device=vid_k.device)
+                
+                concat_win_k, _ = cache_win(f"mm_pnp_k_{ix}_{iy}", lambda: na.repeat_concat_idx(vid_len_win_k, txt_len, window_count))
+                all_len_win_k = vid_len_win_k + txt_len_win
+            else:
+                concat_win_k = concat_win
+                all_len_win_k = all_len_win
+        else:
+            concat_win_k = concat_win
+            all_len_win_k = all_len_win
+            
         # Attention handles dtype conversion internally using pipeline compute_dtype
         out = self.attn(
             q=concat_win(vid_q, txt_q),
-            k=concat_win(vid_k, txt_k),
-            v=concat_win(vid_v, txt_v),
+            k=concat_win_k(vid_k, txt_k),
+            v=concat_win_k(vid_v, txt_v),
             cu_seqlens_q=cache_win(
                 "vid_seqlens_q", lambda: safe_pad_operation(all_len_win.cumsum(0), (1, 0)).int()
             ),
-            cu_seqlens_k=cache_win(
-                "vid_seqlens_k", lambda: safe_pad_operation(all_len_win.cumsum(0), (1, 0)).int()
-            ),
+            cu_seqlens_k=safe_pad_operation(all_len_win_k.cumsum(0), (1, 0)).int(),
             max_seqlen_q=cache_win("vid_max_seqlen_q", lambda: all_len_win.max()),
-            max_seqlen_k=cache_win("vid_max_seqlen_k", lambda: all_len_win.max()),
+            max_seqlen_k=all_len_win_k.max(),
         ).type_as(vid_q)
 
         # text pooling

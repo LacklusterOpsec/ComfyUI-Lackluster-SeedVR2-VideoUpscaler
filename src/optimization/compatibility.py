@@ -640,6 +640,20 @@ def _check_conv3d_memory_bug():
 NVIDIA_CONV3D_MEMORY_BUG_WORKAROUND = _check_conv3d_memory_bug()
 
 
+def safe_print(text: str):
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        try:
+            encoding = sys.stdout.encoding or 'ascii'
+            print(text.encode(encoding, errors='replace').decode(encoding))
+        except Exception:
+            try:
+                print(text.encode('ascii', errors='replace').decode('ascii'))
+            except Exception:
+                pass
+
+
 # Log all optimization status once globally (cross-process) using environment variable
 if not os.environ.get("SEEDVR2_OPTIMIZATIONS_LOGGED"):
     os.environ["SEEDVR2_OPTIMIZATIONS_LOGGED"] = "1"
@@ -654,13 +668,13 @@ if not os.environ.get("SEEDVR2_OPTIMIZATIONS_LOGGED"):
     num_available = sum(available)
     
     if num_available == 3:
-        print(f"⚡ SeedVR2 optimizations check: SageAttention {sage_status} | Flash Attention {flash_status} | Triton {triton_status}")
+        safe_print(f"⚡ SeedVR2 optimizations check: SageAttention {sage_status} | Flash Attention {flash_status} | Triton {triton_status}")
     elif num_available == 0:
-        print(f"⚠️  SeedVR2 optimizations check: SageAttention {sage_status} | Flash Attention {flash_status} | Triton {triton_status}")
-        print("💡 For best performance: pip install sageattention flash-attn triton")
+        safe_print(f"⚠️  SeedVR2 optimizations check: SageAttention {sage_status} | Flash Attention {flash_status} | Triton {triton_status}")
+        safe_print("💡 For best performance: pip install sageattention flash-attn triton")
     else:
         icon = "⚡" if num_available >= 2 else "⚠️ "
-        print(f"{icon} SeedVR2 optimizations check: SageAttention {sage_status} | Flash Attention {flash_status} | Triton {triton_status}")
+        safe_print(f"{icon} SeedVR2 optimizations check: SageAttention {sage_status} | Flash Attention {flash_status} | Triton {triton_status}")
         
         # Build install suggestions for missing packages
         missing = []
@@ -671,13 +685,13 @@ if not os.environ.get("SEEDVR2_OPTIMIZATIONS_LOGGED"):
         if not TRITON_AVAILABLE:
             missing.append("triton")
         if missing:
-            print(f"💡 Optional: pip install {' '.join(missing)}")
+            safe_print(f"💡 Optional: pip install {' '.join(missing)}")
     
     # Conv3d workaround status (if applicable)
     if NVIDIA_CONV3D_MEMORY_BUG_WORKAROUND:
         torch_ver = torch.__version__.split('+')[0]
         cudnn_ver = torch.backends.cudnn.version()
-        print(f"🔧 Conv3d workaround active: PyTorch {torch_ver}, cuDNN {cudnn_ver} (fixing VAE 3x memory bug)")
+        safe_print(f"🔧 Conv3d workaround active: PyTorch {torch_ver}, cuDNN {cudnn_ver} (fixing VAE 3x memory bug)")
 
 
 # Bfloat16 CUBLAS support

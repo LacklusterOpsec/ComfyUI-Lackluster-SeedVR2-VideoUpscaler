@@ -13,7 +13,7 @@
 # // limitations under the License.
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union, Callable
+from typing import List, Optional, Tuple, Union, Callable, Dict
 import torch
 from torch import nn
 
@@ -195,8 +195,14 @@ class NaDiT(nn.Module):
         txt_shape: Union[torch.LongTensor, List[torch.LongTensor]],  # b 1
         timestep: Union[int, float, torch.IntTensor, torch.FloatTensor],  # b
         disable_cache: bool = False,  # for test
+        tile_coords: Optional[Tuple[int, int, int, int]] = None,
+        kv_cache: Optional[Dict] = None,
     ):
         cache = Cache(disable=disable_cache)
+        if tile_coords is not None:
+            cache.set("tile_coords", tile_coords)
+        if kv_cache is not None:
+            cache.set("kv_cache", kv_cache)
 
         # slice vid after patching in when using sequence parallelism
         if isinstance(txt, list):
@@ -218,17 +224,28 @@ class NaDiT(nn.Module):
         emb = self.emb_in(timestep, device=vid.device, dtype=vid.dtype)
 
         # Body
+        state = {"vid": vid, "txt": txt}
+        del vid, txt
+        
         for i, block in enumerate(self.blocks):
-            vid, txt, vid_shape, txt_shape = gradient_checkpointing(
+            v = state.pop("vid")
+            t = state.pop("txt")
+            
+            v_out, t_out, vid_shape, txt_shape = gradient_checkpointing(
                 enabled=(self.gradient_checkpointing and self.training),
                 module=block,
-                vid=vid,
-                txt=txt,
+                vid=v,
+                txt=t,
                 vid_shape=vid_shape,
                 txt_shape=txt_shape,
                 emb=emb,
                 cache=cache,
             )
+            state["vid"] = v_out
+            state["txt"] = t_out
+
+        vid = state.pop("vid")
+        txt = state.pop("txt")
 
         # Video output norm.
         if self.vid_out_norm:

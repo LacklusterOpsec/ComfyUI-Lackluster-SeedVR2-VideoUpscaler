@@ -154,9 +154,10 @@ class SeedVR2LoadVAEModel(io.ComfyNode):
                     default=False,
                     optional=True,
                     tooltip=(
-                        "Keep VAE model loaded on offload_device between workflow runs.\n"
-                        "Useful for batch processing to avoid repeated loading.\n"
-                        "Requires offload_device to be set."
+                        "Keep VAE model loaded between workflow runs.\n"
+                        "If offload_device is set to 'none', the model stays pinned in GPU VRAM (fastest).\n"
+                        "If offload_device is set to 'cpu', the model moves to RAM (saves VRAM).\n"
+                        "Useful for iterative testing."
                     )
                 ),
                 io.Custom("TORCH_COMPILE_ARGS").Input("torch_compile_args",
@@ -203,18 +204,10 @@ class SeedVR2LoadVAEModel(io.ComfyNode):
             
         Returns:
             NodeOutput containing configuration dictionary for SeedVR2 main node
-            
-        Raises:
-            ValueError: If cache_model is enabled but offload_device is invalid
         """
-        # Validate cache_model configuration
-        if cache_model and offload_device == "none":
-            raise ValueError(
-                "Model caching (cache_model=True) requires offload_device to be set. "
-                f"Current: offload_device='{offload_device}'. "
-                "Please set offload_device to specify where the cached VAE model should be stored "
-                "(e.g., 'cpu' or another device). Set cache_model=False if you don't want to cache the model."
-            )
+        
+        # No longer raising ValueError if cache_model=True and offload_device="none".
+        # If offload_device is "none", we pin the model to GPU VRAM for instantaneous reuse.
         
         config = {
             "model": model,
