@@ -1,4 +1,4 @@
-# ComfyUI-SeedVR2_VideoUpscaler
+# ComfyUI-Lackluster-SeedVR2-VideoUpscaler
 
 Vibecoded tewaks and fixes - Deepseek 4 Pro and Gemini Pro
 
