@@ -2,19 +2,17 @@
 
 Vibecoded tweaks and fixes - Deepseek 4 Pro and Gemini Pro
 
-**2026.06.16 - Version 2.5.25**
+**2026.08.26 - Version 2.5.26**
 
-- **⚡ CUDA Graph Acceleration** - Full CUDA graph capture for DiT diffusion steps, eliminating kernel launch overhead and reducing per-step latency by 15-25% on Ampere+ GPUs. Automatically enabled when compatible, with graceful fallback for unsupported configurations.
-- **🪶 BitsAndBytes 4-bit Quantization** - Optional `--bitsandbytes` flag loads DiT models in NF4 quantized format via BitsAndBytes, slashing VRAM usage by ~60% for the DiT backbone with minimal quality loss. Ideal for 12GB GPUs or running larger 7B models on 24GB cards.
-- **🚀 DPM++ 2M Scheduler** - New fast-convergence sampler option (`--scheduler dpmpp_2m`) achieves comparable quality to the default DDIM in half the inference steps, delivering ~2x inference speed without visible quality degradation.
-- **✂️ VAE Slicing** - Intelligent temporal slicing for the VAE encoder/decoder, splitting frames into overlapping chunks to dramatically reduce peak VRAM during encode/decode phases. Configurable via `--temporal_slicing` parameter.
-- **📦 BlockSwap Async Prefetches** - Enhanced BlockSwap memory offloading with asynchronous prefetch hints, overlapping CPU↔GPU transfers with computation to hide I/O latency and improve throughput when VRAM is tight.
-- **🧬 Fused Triton Kernels** - Custom Triton-fused AdaLN (Adaptive Layer Normalization) and Window Partition kernels that replace multi-kernel PyTorch operations with single fused kernels, reducing memory traffic and improving throughput on CUDA GPUs.
-- **⚡ Fix: VRAM Leaks with torch.compile** - Implemented targeted post-compilation memory cleanup (`clear_memory(deep=True)`) after the initial VAE and DiT encoding/upscaling passes. This securely flushes temporary Inductor/Triton workspace memory generated during graph compilation, freeing up VRAM for actual inference and completely eliminating the memory overhead that previously persisted throughout the encoding pipeline.
-- **🎨 Fix: Zero-Seam SyncTiled DiT Inference** - Completely refactored the `dit_tiled` implementation into a native `_dit_forward` integration (MultiDiffusion-style). By evaluating tile patches simultaneously during the diffusion process and utilizing a localized spatial `_dit_blend_mask`, this eliminates seam artifacts that plague standard post-inference tiling.
-- **🛡️ Fix: Native Temporal Tiling Constraints** - Enforced strict dimensional restrictions in the DiT logic to align seamlessly with NaDiT requirements: spatial sizes and overlaps now strictly adhere to multiples of patch sizes (e.g., `step=2`), successfully passing native temporal validations.
-- **🐛 Windows: UnicodeEncodeError Fix** - Added `safe_print` wrapper to prevent crashes when printing emoji-rich status messages on Windows terminals with limited Unicode support.
-- **🐛 Missing Imports & Stability** - Fixed missing `Dict` import in DiT 3B/7B NaDiT modules, corrected unclosed docstrings in model loaders, replaced `BaseException` catches with `Exception` for proper error handling, and added safety guards for `float.clone()` tensor operations.
+- **🔌 ComfyUI Extension & Tool Compatibility** - Exported `NODE_CLASS_MAPPINGS` and `NODE_DISPLAY_NAME_MAPPINGS` in `__init__.py` alongside `get_entrypoint()` for backward compatibility with older ComfyUI versions, ComfyUI-Manager, and external tooling.
+- **🛡️ CompatibleDiT Encapsulation Fix** - Implemented robust `__getattr__` and `__setattr__` attribute delegation in `CompatibleDiT`, ensuring transparent parameter access and preventing recursion bugs.
+- **⚡ Triton Kernel Safety & Fallbacks** - Added device `.is_cuda` checks, pointer guards, and automatic PyTorch native fallbacks to Triton AdaLN and Window Gather kernels for CPU/MPS and unsupported environments.
+- **🧩 Fused AdaLN Text Modulation Fix** - Resolved `txt_res` unpack crash in `mmsr_block.py` during last-layer fused AdaLN execution by respecting `self.ada.vid_only`.
+- **🎨 RGBA Alpha Upscaling Fix** - Fixed `NameError` crash in `guided_filter_pytorch` caused by an undefined `debug` argument when processing transparent images or video sequences.
+- **⚙️ Schema & Parameter Defaults Sync** - Aligned node schema definitions (`INPUT_TYPES`) with `execute()` parameter defaults in `SeedVR2VideoUpscaler` and `SeedVR2VAEModelLoader`.
+- **🚀 Modernized Autocast & Non-CUDA Graph Guards** - Migrated deprecated `torch.cuda.amp.autocast` calls to `torch.amp.autocast('cuda', ...)` and guarded CUDA graph captures on non-CUDA hardware.
+- **⚡ GGUF Dequantization Stability** - Replaced tensor constructor in `GGUFTensor.dequantize` with `as_subclass()` to avoid tensor recreation overhead.
+- **🛡️ Safe BF16 Hardware Probing** - Hardened runtime BF16 GPU capability probing with try-catch safety guards to prevent crashes on legacy GPUs.
 
 [![View Code](https://img.shields.io/badge/📂_View_Code-GitHub-181717?style=for-the-badge&logo=github)](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler)
 
@@ -52,6 +50,31 @@ We're actively working on improvements and new features. To stay informed:
 
 ## 🚀 Release Notes
 
+**2026.08.26 - Version 2.5.26**
+
+- **🔌 ComfyUI Extension & Tool Compatibility** - Exported `NODE_CLASS_MAPPINGS` and `NODE_DISPLAY_NAME_MAPPINGS` in `__init__.py` alongside `get_entrypoint()` for seamless compatibility with older ComfyUI versions, ComfyUI-Manager, and external tooling.
+- **🛡️ CompatibleDiT Encapsulation Fix** - Implemented robust `__getattr__` and `__setattr__` attribute delegation in `CompatibleDiT`, ensuring transparent parameter access and preventing recursion bugs.
+- **⚡ Triton Kernel Safety & Fallbacks** - Added device `.is_cuda` checks, pointer guards, and automatic PyTorch native fallbacks to Triton AdaLN and Window Gather kernels for CPU/MPS and unsupported environments.
+- **🧩 Fused AdaLN Text Modulation Fix** - Resolved `txt_res` unpack crash in `mmsr_block.py` during last-layer fused AdaLN execution by respecting `self.ada.vid_only`.
+- **🎨 RGBA Alpha Upscaling Fix** - Fixed `NameError` crash in `guided_filter_pytorch` caused by an undefined `debug` argument when processing transparent images or video sequences.
+- **⚙️ Schema & Parameter Defaults Sync** - Aligned node schema definitions (`INPUT_TYPES`) with `execute()` parameter defaults in `SeedVR2VideoUpscaler` and `SeedVR2VAEModelLoader`.
+- **🚀 Modernized Autocast & Non-CUDA Graph Guards** - Migrated deprecated `torch.cuda.amp.autocast` calls to `torch.amp.autocast('cuda', ...)` and guarded CUDA graph captures on non-CUDA hardware.
+- **⚡ GGUF Dequantization Stability** - Replaced tensor constructor in `GGUFTensor.dequantize` with `as_subclass()` to avoid tensor recreation overhead.
+- **🛡️ Safe BF16 Hardware Probing** - Hardened runtime BF16 GPU capability probing with try-catch safety guards to prevent crashes on legacy GPUs.
+
+**2026.06.16 - Version 2.5.25**
+
+- **⚡ CUDA Graph Acceleration** - Full CUDA graph capture for DiT diffusion steps, eliminating kernel launch overhead and reducing per-step latency by 15-25% on Ampere+ GPUs. Automatically enabled when compatible, with graceful fallback for unsupported configurations.
+- **🪶 BitsAndBytes 4-bit Quantization** - Optional `--bitsandbytes` flag loads DiT models in NF4 quantized format via BitsAndBytes, slashing VRAM usage by ~60% for the DiT backbone with minimal quality loss. Ideal for 12GB GPUs or running larger 7B models on 24GB cards.
+- **🚀 DPM++ 2M Scheduler** - New fast-convergence sampler option (`--scheduler dpmpp_2m`) achieves comparable quality to the default DDIM in half the inference steps, delivering ~2x inference speed without visible quality degradation.
+- **✂️ VAE Slicing** - Intelligent temporal slicing for the VAE encoder/decoder, splitting frames into overlapping chunks to dramatically reduce peak VRAM during encode/decode phases. Configurable via `--temporal_slicing` parameter.
+- **📦 BlockSwap Async Prefetches** - Enhanced BlockSwap memory offloading with asynchronous prefetch hints, overlapping CPU↔GPU transfers with computation to hide I/O latency and improve throughput when VRAM is tight.
+- **🧬 Fused Triton Kernels** - Custom Triton-fused AdaLN (Adaptive Layer Normalization) and Window Partition kernels that replace multi-kernel PyTorch operations with single fused kernels, reducing memory traffic and improving throughput on CUDA GPUs.
+- **⚡ Fix: VRAM Leaks with torch.compile** - Implemented targeted post-compilation memory cleanup (`clear_memory(deep=True)`) after the initial VAE and DiT encoding/upscaling passes. This securely flushes temporary Inductor/Triton workspace memory generated during graph compilation, freeing up VRAM for actual inference and completely eliminating the memory overhead that previously persisted throughout the encoding pipeline.
+- **🎨 Fix: Zero-Seam SyncTiled DiT Inference** - Completely refactored the `dit_tiled` implementation into a native `_dit_forward` integration (MultiDiffusion-style). By evaluating tile patches simultaneously during the diffusion process and utilizing a localized spatial `_dit_blend_mask`, this eliminates seam artifacts that plague standard post-inference tiling.
+- **🛡️ Fix: Native Temporal Tiling Constraints** - Enforced strict dimensional restrictions in the DiT logic to align seamlessly with NaDiT requirements: spatial sizes and overlaps now strictly adhere to multiples of patch sizes (e.g., `step=2`), successfully passing native temporal validations.
+- **🐛 Windows: UnicodeEncodeError Fix** - Added `safe_print` wrapper to prevent crashes when printing emoji-rich status messages on Windows terminals with limited Unicode support.
+- **🐛 Missing Imports & Stability** - Fixed missing `Dict` import in DiT 3B/7B NaDiT modules, corrected unclosed docstrings in model loaders, replaced `BaseException` catches with `Exception` for proper error handling, and added safety guards for `float.clone()` tensor operations.
 - **🔧 Pipeline: Temporal Slicing Config** - Wired `temporal_slicing` parameter throughout the `configure_runner` pipeline, enabling user-configurable temporal slice sizes directly from the CLI and GUI interfaces.
 
 **2025.12.24 - Version 2.5.24**
