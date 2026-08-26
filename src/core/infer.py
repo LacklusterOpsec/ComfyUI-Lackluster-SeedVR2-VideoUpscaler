@@ -457,7 +457,7 @@ class VideoDiffusionInfer():
         return latents
 
     def _dit_forward(self, vid, txt, vid_shape, txt_shape, timestep):
-        if not self.cuda_graphs:
+        if not self.cuda_graphs or vid.device.type != "cuda":
             return self._dit_forward_original(vid, txt, vid_shape, txt_shape, timestep)
 
         # Build a shape-based signature for the cache

@@ -297,7 +297,7 @@ class GGUFTensor(torch.Tensor):
             result = self.to(device, dtype)
             if isinstance(result, GGUFTensor):
                 # Convert to regular tensor to avoid __torch_function__ calls
-                result = torch.tensor(result, dtype=dtype, device=device, requires_grad=False)
+                result = result.as_subclass(torch.Tensor)
             return result
         
         # Try fast dequantization with crash protection
@@ -307,7 +307,7 @@ class GGUFTensor(torch.Tensor):
             
             # Ensure we return a regular tensor, not GGUFTensor
             if isinstance(final_result, GGUFTensor):
-                final_result = torch.tensor(final_result.data, dtype=dtype, device=device, requires_grad=False)
+                final_result = final_result.as_subclass(torch.Tensor)
                 
             return final_result
         except Exception as e:

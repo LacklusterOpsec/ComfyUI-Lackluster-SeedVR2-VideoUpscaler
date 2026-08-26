@@ -68,58 +68,72 @@ if triton is not None:
         # Write back
         tl.store(Y_row_ptr + offsets * stride_y_col, y.to(X_ptr.dtype.element_ty), mask=mask)
 
+def _pytorch_adaln_fallback(x: torch.Tensor, scaleA: torch.Tensor, shiftA: torch.Tensor, 
+                             scaleB: torch.Tensor = None, shiftB: torch.Tensor = None, eps: float = 1e-5):
+    import torch.nn.functional as F
+    x_norm = F.layer_norm(x, (x.size(-1),), eps=eps)
+    scale = scaleA + scaleB if scaleB is not None else scaleA
+    shift = shiftA + shiftB if shiftB is not None else shiftA
+    return x_norm * scale + shift
+
 def fused_adaln_forward(x: torch.Tensor, scaleA: torch.Tensor, shiftA: torch.Tensor, 
                         scaleB: torch.Tensor = None, shiftB: torch.Tensor = None, eps: float = 1e-5):
     """
     Fused Adaptive Layer Norm forward pass using Triton.
     Computes: y = layer_norm(x) * (scaleA + scaleB) + (shiftA + shiftB)
     """
-    if triton is None:
-        # Fallback to PyTorch eager if Triton is not available
-        import torch.nn.functional as F
-        x_norm = F.layer_norm(x, (x.size(-1),), eps=eps)
-        scale = scaleA + scaleB if scaleB is not None else scaleA
-        shift = shiftA + shiftB if shiftB is not None else shiftA
-        return x_norm * scale + shift
+    if triton is None or not x.is_cuda:
+        return _pytorch_adaln_fallback(x, scaleA, shiftA, scaleB, shiftB, eps=eps)
         
-    # We flatten the batch and sequence dimensions
-    x_shape = x.shape
-    M = x.numel() // x.shape[-1]
-    N = x.shape[-1]
-    
-    x_2d = x.view(M, N)
-    # scaleA/shiftA might be broadcastable or have shape (M, N)
-    # If they are (M, 1, N), we can view them as (M, N)
-    scaleA_2d = scaleA.expand_as(x).contiguous().view(M, N)
-    shiftA_2d = shiftA.expand_as(x).contiguous().view(M, N)
-    
-    y_2d = torch.empty_like(x_2d)
-    
-    # We assume N is less than or equal to 8192 for the block size
-    # Find the next power of 2
-    MAX_FUSED_SIZE = 65536
-    assert N <= MAX_FUSED_SIZE, "Hidden size too large for fused AdaLN"
-    BLOCK_N = triton.next_power_of_2(N)
-    
-    # Make sure inputs are contiguous where needed
-    if not x_2d.is_contiguous(): x_2d = x_2d.contiguous()
-    
-    def get_ptr(tensor):
-        return tensor if tensor is not None else None
+    try:
+        # We flatten the batch and sequence dimensions
+        x_shape = x.shape
+        M = x.numel() // x.shape[-1]
+        N = x.shape[-1]
+        
+        x_2d = x.view(M, N)
+        # scaleA/shiftA might be broadcastable or have shape (M, N)
+        # If they are (M, 1, N), we can view them as (M, N)
+        scaleA_2d = scaleA.expand_as(x).contiguous().view(M, N)
+        shiftA_2d = shiftA.expand_as(x).contiguous().view(M, N)
+        
+        # Prepare scaleB and shiftB (1D contiguous on same device)
+        if scaleB is not None:
+            if scaleB.device != x.device:
+                scaleB = scaleB.to(x.device)
+            scaleB = scaleB.view(-1).contiguous()
+            
+        if shiftB is not None:
+            if shiftB.device != x.device:
+                shiftB = shiftB.to(x.device)
+            shiftB = shiftB.view(-1).contiguous()
+        
+        y_2d = torch.empty_like(x_2d)
+        
+        # We assume N is less than or equal to 65536 for the block size
+        MAX_FUSED_SIZE = 65536
+        assert N <= MAX_FUSED_SIZE, "Hidden size too large for fused AdaLN"
+        BLOCK_N = triton.next_power_of_2(N)
+        
+        # Make sure inputs are contiguous where needed
+        if not x_2d.is_contiguous():
+            x_2d = x_2d.contiguous()
 
-    # Launch kernel
-    grid = (M,)
-    _fused_adaln_fwd[grid](
-        x_2d, y_2d,
-        scaleA_2d, get_ptr(scaleB),
-        shiftA_2d, get_ptr(shiftB),
-        x_2d.stride(0), x_2d.stride(1),
-        y_2d.stride(0), y_2d.stride(1),
-        scaleA_2d.stride(0), scaleA_2d.stride(1),
-        shiftA_2d.stride(0), shiftA_2d.stride(1),
-        N, eps,
-        BLOCK_N=BLOCK_N,
-        num_warps=min(max(BLOCK_N // 256, 1), 8)
-    )
-    
-    return y_2d.view(x_shape)
+        # Launch kernel
+        grid = (M,)
+        _fused_adaln_fwd[grid](
+            x_2d, y_2d,
+            scaleA_2d, scaleB,
+            shiftA_2d, shiftB,
+            x_2d.stride(0), x_2d.stride(1),
+            y_2d.stride(0), y_2d.stride(1),
+            scaleA_2d.stride(0), scaleA_2d.stride(1),
+            shiftA_2d.stride(0), shiftA_2d.stride(1),
+            N, eps,
+            BLOCK_N=BLOCK_N,
+            num_warps=min(max(BLOCK_N // 256, 1), 8)
+        )
+        
+        return y_2d.view(x_shape)
+    except Exception:
+        return _pytorch_adaln_fallback(x, scaleA, shiftA, scaleB, shiftB, eps=eps)

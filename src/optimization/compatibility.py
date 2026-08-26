@@ -790,7 +790,7 @@ def call_rope_with_stability(method, *args, **kwargs):
     # Only use CUDA autocast context on CUDA devices
     # MPS has no CUDA autocast to disable
     if torch.cuda.is_available():
-        with torch.cuda.amp.autocast(enabled=False):
+        with torch.amp.autocast('cuda', enabled=False):
             return method(*args, **kwargs)
     else:
         return method(*args, **kwargs)
@@ -1016,19 +1016,37 @@ class CompatibleDiT(torch.nn.Module):
                 self.debug.log(f"{self.model_dtype} model - no conversion applied", category="info", force=True)
             raise
     
+    def _get_dit_model(self):
+        if '_modules' in self.__dict__ and 'dit_model' in self.__dict__['_modules']:
+            return self.__dict__['_modules']['dit_model']
+        if 'dit_model' in self.__dict__:
+            return self.__dict__['dit_model']
+        return None
+
     def __getattr__(self, name):
         """Redirect all other attributes to original model"""
-        if name in ['dit_model', 'model_dtype', 'is_fp8_model', 'is_fp16_model']:
-            return super().__getattr__(name)
-        return getattr(self.dit_model, name)
+        if '_parameters' in self.__dict__ and name in self.__dict__['_parameters']:
+            return self.__dict__['_parameters'][name]
+        if '_buffers' in self.__dict__ and name in self.__dict__['_buffers']:
+            return self.__dict__['_buffers'][name]
+        if '_modules' in self.__dict__ and name in self.__dict__['_modules']:
+            return self.__dict__['_modules'][name]
+        if name in self.__dict__:
+            return self.__dict__[name]
+        
+        dit = self._get_dit_model()
+        if dit is not None and hasattr(dit, name):
+            return getattr(dit, name)
+        return super().__getattr__(name)
     
     def __setattr__(self, name, value):
         """Redirect assignments to original model except for our attributes"""
-        if name in ['dit_model', 'model_dtype', 'is_fp8_model', 'is_fp16_model']:
+        if (
+            name in {'dit_model', 'debug', 'compute_dtype', 'model_dtype', 'is_fp8_model', 'is_fp16_model'}
+            or name.startswith('_')
+            or self._get_dit_model() is None
+        ):
             super().__setattr__(name, value)
         else:
-            if hasattr(self, 'dit_model'):
-                setattr(self.dit_model, name, value)
-            else:
-                super().__setattr__(name, value)
+            setattr(self._get_dit_model(), name, value)
                 

@@ -253,8 +253,8 @@ class SeedVR2VideoUpscaler(io.ComfyNode):
                 seed: int, resolution: int = 1080, max_resolution: int = 0, steps: int = 50,
                 sampler_name: str = "euler", batch_size: int = 5,
                 uniform_batch_size: bool = False, temporal_overlap: int = 0, prepend_frames: int = 0,
-                color_correction: str = "wavelet", input_noise_scale: float = 0.0,
-                latent_noise_scale: float = 0.0, offload_device: str = "none", 
+                color_correction: str = "lab", input_noise_scale: float = 0.0,
+                latent_noise_scale: float = 0.0, offload_device: str = "cpu", 
                 enable_debug: bool = False) -> io.NodeOutput:
         """
         Execute SeedVR2 video upscaling with progress reporting

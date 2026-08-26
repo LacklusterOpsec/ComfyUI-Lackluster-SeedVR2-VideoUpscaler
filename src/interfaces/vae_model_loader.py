@@ -179,9 +179,9 @@ class SeedVR2LoadVAEModel(io.ComfyNode):
     def execute(cls, model: str, device: str, offload_device: str = "none",
                      cache_model: bool = False, encode_tiled: bool = False,
                      temporal_slicing: int = 4,
-                     encode_tile_size: int = 512, encode_tile_overlap: int = 64,
-                     decode_tiled: bool = False, decode_tile_size: int = 512, 
-                     decode_tile_overlap: int = 64, tile_debug: str = "false",
+                     encode_tile_size: int = 1024, encode_tile_overlap: int = 128,
+                     decode_tiled: bool = False, decode_tile_size: int = 1024, 
+                     decode_tile_overlap: int = 128, tile_debug: str = "false",
                      torch_compile_args: Dict[str, Any] = None
                      ) -> io.NodeOutput:
         """
