@@ -412,7 +412,7 @@ With the current optimizations (tiling, BlockSwap, GGUF quantization), SeedVR2 c
 1. **Clone the repository** into your ComfyUI custom nodes directory:
 ```bash
 cd ComfyUI
-git clone https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git custom_nodes/seedvr2_videoupscaler
+git clone https://github.com/LacklusterOpsec/ComfyUI-Lackluster-SeedVR2-VideoUpscaler.git custom_nodes/seedvr2_videoupscaler
 ```
 
 2. **Install dependencies using standalone Python**:
