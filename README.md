@@ -1,58 +1,16 @@
 # ComfyUI-Lackluster-SeedVR2-VideoUpscaler
 
-Vibecoded tweaks and fixes - Deepseek 4 Pro and Gemini Pro
+---
 
-**2026.08.26 - Version 2.5.26**
+### This is an actively maintained fork of REAL Video Enhancer with bug fixes, stability improvements, and performance optimizations applied on top of the archived upstream.
 
-- **🔌 ComfyUI Extension & Tool Compatibility** - Exported `NODE_CLASS_MAPPINGS` and `NODE_DISPLAY_NAME_MAPPINGS` in `__init__.py` alongside `get_entrypoint()` for backward compatibility with older ComfyUI versions, ComfyUI-Manager, and external tooling.
-- **🛡️ CompatibleDiT Encapsulation Fix** - Implemented robust `__getattr__` and `__setattr__` attribute delegation in `CompatibleDiT`, ensuring transparent parameter access and preventing recursion bugs.
-- **⚡ Triton Kernel Safety & Fallbacks** - Added device `.is_cuda` checks, pointer guards, and automatic PyTorch native fallbacks to Triton AdaLN and Window Gather kernels for CPU/MPS and unsupported environments.
-- **🧩 Fused AdaLN Text Modulation Fix** - Resolved `txt_res` unpack crash in `mmsr_block.py` during last-layer fused AdaLN execution by respecting `self.ada.vid_only`.
-- **🎨 RGBA Alpha Upscaling Fix** - Fixed `NameError` crash in `guided_filter_pytorch` caused by an undefined `debug` argument when processing transparent images or video sequences.
-- **⚙️ Schema & Parameter Defaults Sync** - Aligned node schema definitions (`INPUT_TYPES`) with `execute()` parameter defaults in `SeedVR2VideoUpscaler` and `SeedVR2VAEModelLoader`.
-- **🚀 Modernized Autocast & Non-CUDA Graph Guards** - Migrated deprecated `torch.cuda.amp.autocast` calls to `torch.amp.autocast('cuda', ...)` and guarded CUDA graph captures on non-CUDA hardware.
-- **⚡ GGUF Dequantization Stability** - Replaced tensor constructor in `GGUFTensor.dequantize` with `as_subclass()` to avoid tensor recreation overhead.
-- **🛡️ Safe BF16 Hardware Probing** - Hardened runtime BF16 GPU capability probing with try-catch safety guards to prevent crashes on legacy GPUs.
-
-[![View Code](https://img.shields.io/badge/📂_View_Code-GitHub-181717?style=for-the-badge&logo=github)](https://github.com/LacklusterOpsec/ComfyUI-Lackluster-SeedVR2-VideoUpscaler)
-
-Official release of [SeedVR2](https://github.com/ByteDance-Seed/SeedVR) for ComfyUI that enables high-quality video and image upscaling.
-
-Can run as **Multi-GPU standalone CLI** too, see [🖥️ Run as Standalone](#-run-as-standalone-cli) section.
-
-[![SeedVR2 v2.5 Deep Dive Tutorial](https://img.youtube.com/vi/MBtWYXq_r60/maxresdefault.jpg)](https://youtu.be/MBtWYXq_r60)
-
-![Usage Example](docs/usage_01.png)
-
-![Usage Example](docs/usage_02.png)
-
-## 📋 Quick Access
-
-- [🆙 Future Work](#-future-work)
-- [🚀 Release Notes](#-release-notes)
-- [🎯 Features](#-features)
-- [🔧 Requirements](#-requirements)
-- [📦 Installation](#-installation)
-- [📖 Usage](#-usage)
-- [🖥️ Run as Standalone](#️-run-as-standalone-cli)
-- [⚠️ Limitations](#️-limitations)
-- [🤝 Contributing](#-contributing)
-- [🙏 Credits](#-credits)
-- [📜 License](#-license)
-
-## 🆙 Future Work
-
-We're actively working on improvements and new features. To stay informed:
-
-- **📌 Track Active Development**: Visit [Issues](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/issues) to see active development, report bugs, and request new features
-- **💬 Join the Community**: Learn from others, share your workflows, and get help in the [Discussions](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/discussions)
-- **🔮 Next Model Survey**: We're looking for community input on the next open-source super-powerful generic restoration model. Share your suggestions in [Issue #164](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/issues/164)
+---
 
 ## 🚀 Release Notes
 
 **2026.08.26 - Version 2.5.26**
 
-- **🔌 ComfyUI Extension & Tool Compatibility** - Exported `NODE_CLASS_MAPPINGS` and `NODE_DISPLAY_NAME_MAPPINGS` in `__init__.py` alongside `get_entrypoint()` for seamless compatibility with older ComfyUI versions, ComfyUI-Manager, and external tooling.
+- **🔌 ComfyUI Extension & Tool Compatibility** - Exported `NODE_CLASS_MAPPINGS` and `NODE_DISPLAY_NAME_MAPPINGS` in `__init__.py` alongside `get_entrypoint()` for backward compatibility with older ComfyUI versions, ComfyUI-Manager, and external tooling.
 - **🛡️ CompatibleDiT Encapsulation Fix** - Implemented robust `__getattr__` and `__setattr__` attribute delegation in `CompatibleDiT`, ensuring transparent parameter access and preventing recursion bugs.
 - **⚡ Triton Kernel Safety & Fallbacks** - Added device `.is_cuda` checks, pointer guards, and automatic PyTorch native fallbacks to Triton AdaLN and Window Gather kernels for CPU/MPS and unsupported environments.
 - **🧩 Fused AdaLN Text Modulation Fix** - Resolved `txt_res` unpack crash in `mmsr_block.py` during last-layer fused AdaLN execution by respecting `self.ada.vid_only`.
@@ -336,6 +294,41 @@ We're actively working on improvements and new features. To stay informed:
 **2025.06.20**
 
 - 🛠️ Initial push
+
+---
+
+[![View Code](https://img.shields.io/badge/📂_View_Code-GitHub-181717?style=for-the-badge&logo=github)](https://github.com/LacklusterOpsec/ComfyUI-Lackluster-SeedVR2-VideoUpscaler)
+Official release of [SeedVR2](https://github.com/ByteDance-Seed/SeedVR) for ComfyUI that enables high-quality video and image upscaling.
+
+Can run as **Multi-GPU standalone CLI** too, see [🖥️ Run as Standalone](#-run-as-standalone-cli) section.
+
+[![SeedVR2 v2.5 Deep Dive Tutorial](https://img.youtube.com/vi/MBtWYXq_r60/maxresdefault.jpg)](https://youtu.be/MBtWYXq_r60)
+
+![Usage Example](docs/usage_01.png)
+
+![Usage Example](docs/usage_02.png)
+
+## 📋 Quick Access
+
+- [🆙 Future Work](#-future-work)
+- [🚀 Release Notes](#-release-notes)
+- [🎯 Features](#-features)
+- [🔧 Requirements](#-requirements)
+- [📦 Installation](#-installation)
+- [📖 Usage](#-usage)
+- [🖥️ Run as Standalone](#️-run-as-standalone-cli)
+- [⚠️ Limitations](#️-limitations)
+- [🤝 Contributing](#-contributing)
+- [🙏 Credits](#-credits)
+- [📜 License](#-license)
+
+## 🆙 Future Work
+
+We're actively working on improvements and new features. To stay informed:
+
+- **📌 Track Active Development**: Visit [Issues](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/issues) to see active development, report bugs, and request new features
+- **💬 Join the Community**: Learn from others, share your workflows, and get help in the [Discussions](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/discussions)
+- **🔮 Next Model Survey**: We're looking for community input on the next open-source super-powerful generic restoration model. Share your suggestions in [Issue #164](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/issues/164)
 
 ## 🎯 Features
 
@@ -1078,10 +1071,9 @@ For detailed contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 5. Open a Pull Request to the **main** branch
 
 **Get Help:**
-- YouTube: [AInVFX Channel](https://www.youtube.com/@AInVFX)
-- GitHub [Issues](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/issues): For bug reports and feature requests
-- GitHub [Discussions](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/discussions): For questions and community support
-- Discord: adrientoupet & NumZ#7184
+- GitHub [Issues](https://github.com/LacklusterOpsec/ComfyUI-Lackluster-SeedVR2-VideoUpscaler/issues): For bug reports and feature requests
+- GitHub [Discussions](https://github.com/LacklusterOpsec/ComfyUI-Lackluster-SeedVR2-VideoUpscaler/discussions): For questions and community support
+
 
 ## 🙏 Credits
 
