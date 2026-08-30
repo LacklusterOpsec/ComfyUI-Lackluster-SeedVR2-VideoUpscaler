@@ -1,8 +1,8 @@
 # ComfyUI-Lackluster-SeedVR2-VideoUpscaler
-
+# Has issues, use upstream till I can figure them out
 ---
 
-### This is an actively maintained fork of REAL Video Enhancer with bug fixes, stability improvements, and performance optimizations applied on top of the archived upstream.
+~~This is an actively maintained fork of REAL Video Enhancer with bug fixes, stability improvements, and performance optimizations applied on top of the archived upstream.~~
 
 ---
 
