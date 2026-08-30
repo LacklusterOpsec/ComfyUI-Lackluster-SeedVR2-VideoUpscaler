@@ -14,7 +14,7 @@ Vibecoded tweaks and fixes - Deepseek 4 Pro and Gemini Pro
 - **⚡ GGUF Dequantization Stability** - Replaced tensor constructor in `GGUFTensor.dequantize` with `as_subclass()` to avoid tensor recreation overhead.
 - **🛡️ Safe BF16 Hardware Probing** - Hardened runtime BF16 GPU capability probing with try-catch safety guards to prevent crashes on legacy GPUs.
 
-[![View Code](https://img.shields.io/badge/📂_View_Code-GitHub-181717?style=for-the-badge&logo=github)](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler)
+[![View Code](https://img.shields.io/badge/📂_View_Code-GitHub-181717?style=for-the-badge&logo=github)](https://github.com/LacklusterOpsec/ComfyUI-Lackluster-SeedVR2-VideoUpscaler)
 
 Official release of [SeedVR2](https://github.com/ByteDance-Seed/SeedVR) for ComfyUI that enables high-quality video and image upscaling.
 
@@ -407,16 +407,16 @@ With the current optimizations (tiling, BlockSwap, GGUF quantization), SeedVR2 c
 1. **Clone the repository** into your ComfyUI custom nodes directory:
 ```bash
 cd ComfyUI
-git clone https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git custom_nodes/seedvr2_videoupscaler
+git clone https://github.com/LacklusterOpsec/ComfyUI-Lackluster-SeedVR2-VideoUpscaler.git custom_nodes/ComfyUI-Lackluster-SeedVR2_VideoUpscaler
 ```
 
 2. **Install dependencies using standalone Python**:
 ```bash
 # Install requirements (from same ComfyUI directory)
 # Windows:
-.venv\Scripts\python.exe -m pip install -r custom_nodes\seedvr2_videoupscaler\requirements.txt
+.venv\Scripts\python.exe -m pip install -r custom_nodes\ComfyUI-Lackluster-SeedVR2_VideoUpscaler\requirements.txt
 # Linux/macOS:
-.venv/bin/python -m pip install -r custom_nodes/seedvr2_videoupscaler/requirements.txt
+.venv/bin/python -m pip install -r custom_nodes/ComfyUI-Lackluster-SeedVR2_VideoUpscaler/requirements.txt
 ```
 
 3. **Restart ComfyUI**
@@ -834,8 +834,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 2. **Clone the repository**:
 ```bash
-git clone https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git seedvr2_videoupscaler
-cd seedvr2_videoupscaler
+git clone https://github.com/LacklusterOpsec/ComfyUI-Lackluster-SeedVR2-VideoUpscaler.git ComfyUI-Lackluster-SeedVR2_VideoUpscaler
+cd ComfyUI-Lackluster-SeedVR2_VideoUpscaler
 ```
 
 3. **Create virtual environment and install dependencies**:

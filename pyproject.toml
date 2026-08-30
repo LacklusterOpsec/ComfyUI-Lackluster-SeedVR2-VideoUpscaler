@@ -28,10 +28,10 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler"
+Repository = "https://github.com/LacklusterOpsec/ComfyUI-Lackluster-SeedVR2-VideoUpscaler"
 Documentation = "https://www.youtube.com/@AInVFX"
-"Bug Tracker" = "https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/issues"
-Forum = "https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/discussions"
+"Bug Tracker" = "https://github.com/LacklusterOpsec/ComfyUI-Lackluster-SeedVR2-VideoUpscaler/issues"
+Forum = "https://github.com/LacklusterOpsec/ComfyUI-Lackluster-SeedVR2-VideoUpscaler/discussions"
 
 [tool.comfy]
 PublisherId = "ainvfx"
