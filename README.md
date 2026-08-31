@@ -1,5 +1,4 @@
 # ComfyUI-Lackluster-SeedVR2-VideoUpscaler
-# Has issues, use upstream till I can figure them out
 ---
 
 ~~This is an actively maintained fork of REAL Video Enhancer with bug fixes, stability improvements, and performance optimizations applied on top of the archived upstream.~~
@@ -7,6 +6,12 @@
 ---
 
 ## 🚀 Release Notes
+
+**2026.08.30 - Hotfix: Black Output & torch.compile Crash**
+
+- **🐛 Fix: Completely black output with FP8/mixed-precision models** - Removed the hardcoded `steps=1 / cfg_scale=1.0` override in `upscale_all_batches` that forced every EMA checkpoint (e.g. `seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors`) into a single denoising step with no classifier-free guidance. The bundled EMA checkpoints are trained for 50 steps at CFG 7.5; a single t=1.0 step with CFG disabled produced a barely-denoised latent that decoded to black. The pipeline now uses the configured defaults (50 steps, euler, CFG 7.5) and honors the node's `steps`/`sampler_name` widgets.
+- **🛡️ Fix: `CompatibleDiT does not support len()` crash with torch.compile** - Iterating `parameters()` (and truthiness checks) on a `torch.compile`d `OptimizedModule` wrapper triggers torch._dynamo's `__len__` guard. Added `_unwrap_model()` / `_model_device_type()` helpers that safely reach the real `nn.Module` through `_orig_mod`/`CompatibleDiT` wrappers, and applied them at every meta-device check site (VAE encode, DiT upscale, VAE decode, `materialize_model`).
+- **🔍 Diagnostic probes for black-output debugging** - Added `_log_tensor_stats()` probes (shape/dtype/min/max/mean/NaN/Inf) at five checkpoints: VAE-encoded latent, DiT output latent, VAE-decoded pixels, and Phase 4 pre/post-normalization. Probes always print regardless of `enable_debug`; NaN/Inf are logged at ERROR level to pinpoint the failing stage.
 
 **2026.08.26 - Version 2.5.26**
 

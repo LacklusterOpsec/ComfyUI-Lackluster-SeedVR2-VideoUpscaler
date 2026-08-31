@@ -39,7 +39,10 @@ from .generation_utils import (
     script_directory
 )
 from .model_configuration import apply_model_specific_config
-from .model_loader import materialize_model
+from .model_loader import (
+    materialize_model,
+    _model_device_type,
+)
 from .alpha_upscaling import process_alpha_for_batch
 from .infer import VideoDiffusionInfer
 from ..common.seed import set_seed
@@ -66,6 +69,38 @@ from ..utils.color_fix import (
     wavelet_reconstruction,
     adaptive_instance_normalization
 )
+
+
+def _log_tensor_stats(label: str, tensor: torch.Tensor, debug: 'Debug', force: bool = True) -> None:
+    """
+    Diagnostic probe: log shape/dtype/min/max/mean and NaN/Inf presence for a tensor.
+    Always prints when force=True (independent of enable_debug), which is what we want
+    for black-output debugging. NaN/Inf are logged at ERROR level.
+    """
+    if tensor is None or not torch.is_tensor(tensor):
+        debug.log(f"{label}: None (not a tensor)", level="WARNING", category="probe", force=force)
+        return
+    try:
+        t = tensor.detach()
+        if t.numel() == 0:
+            debug.log(f"{label}: EMPTY shape={tuple(t.shape)}", level="WARNING", category="probe", force=force)
+            return
+        if t.dtype.is_floating_point:
+            has_nan = bool(torch.isnan(t).any().item())
+            has_inf = bool(torch.isinf(t).any().item())
+            level = "ERROR" if (has_nan or has_inf) else "INFO"
+            debug.log(
+                f"{label}: shape={tuple(t.shape)} dtype={t.dtype} "
+                f"min={t.min().item():.4g} max={t.max().item():.4g} mean={t.mean().item():.4g} "
+                f"nan={has_nan} inf={has_inf}",
+                level=level,
+                category="probe",
+                force=force,
+            )
+        else:
+            debug.log(f"{label}: shape={tuple(t.shape)} dtype={t.dtype}", category="probe", force=force)
+    except Exception as e:
+        debug.log(f"{label}: probe failed: {e}", level="WARNING", category="probe", force=force)
 
 
 def _prepare_video_batch(
@@ -311,7 +346,7 @@ def encode_all_batches(
         vae_needs_reactivation = runner.vae is not None and is_model_cache_cold(runner.vae)
 
         # Materialize VAE if still on meta device
-        if runner.vae and next(runner.vae.parameters()).device.type == 'meta':
+        if _model_device_type(runner.vae) == 'meta':
             materialize_model(runner, "vae", ctx['vae_device'], runner.config, debug)
         else:
             # Cold cached models keep weights/config, but execution state is rebuilt each run.
@@ -567,7 +602,10 @@ def encode_all_batches(
                 )
             
             del cond_latents
-            
+
+            # Diagnostic probe: verify encoded latent is sane (black-output debugging)
+            _log_tensor_stats(f"VAE encoded batch {encode_idx+1}", ctx['all_latents'][encode_idx], debug)
+
             # Post-compilation memory cleanup
             if encode_idx == 0 and getattr(runner, '_vae_compile_args', None):
                 # Force garbage collection and CUDA cache empty to clear compilation memory overhead
@@ -654,11 +692,13 @@ def upscale_all_batches(
         ctx['text_embeds'] = load_text_embeddings(script_directory, ctx['dit_device'], ctx['compute_dtype'], debug)
         debug.log("Loaded text embeddings for DiT", category="dit")
     
-    # Configure diffusion parameters
-    # Force cfg_scale = 1.0 for one-step distilled models (CFG is incompatible with distillation)
-    runner.config.diffusion.cfg.scale = 1.0
-    runner.config.diffusion.cfg.rescale = 0.0
-    runner.config.diffusion.timesteps.sampling.steps = 1
+    # Configure diffusion parameters.
+    # NOTE: We intentionally do NOT force steps=1 / cfg=1.0 here. The bundled
+    # EMA checkpoints (configs_7b/main.yaml, configs_3b/main.yaml) are trained
+    # for 50 steps with cfg_scale 7.5; forcing a single denoising step at
+    # t=1.0 with no CFG produces a barely-denoised latent that decodes to
+    # black/near-black output. The sampler type and step count are set from
+    # the node widget in video_upscaler.py before this phase runs.
     runner.configure_diffusion(device=ctx['dit_device'], dtype=ctx['compute_dtype'])
 
     # Count valid latents
@@ -679,7 +719,7 @@ def upscale_all_batches(
         dit_needs_reactivation = runner.dit is not None and is_model_cache_cold(runner.dit)
 
         # Materialize DiT if still on meta device
-        if runner.dit and next(runner.dit.parameters()).device.type == 'meta':
+        if _model_device_type(runner.dit) == 'meta':
             materialize_model(runner, "dit", ctx['dit_device'], runner.config, debug)
         else:
             # Cold cached models keep weights/config, but execution state is rebuilt each run.
@@ -799,7 +839,10 @@ def upscale_all_batches(
                         **ctx['text_embeds'],
                     )
             debug.end_timer(f"dit_inference_{upscale_idx+1}", f"DiT inference {upscale_idx+1}")
-            
+
+            # Diagnostic probe: verify DiT output latent is sane (black-output debugging)
+            _log_tensor_stats(f"DiT output batch {upscale_idx+1}", upscaled_latents[0], debug)
+
             # Offload upscaled latents to avoid VRAM accumulation
             if ctx['tensor_offload_device'] is not None and (upscaled_latents[0].is_cuda or upscaled_latents[0].is_mps):
                 ctx['all_upscaled_latents'][upscale_idx] = manage_tensor(
@@ -971,7 +1014,7 @@ def decode_all_batches(
     
     try:
         # VAE should already be materialized from encoding phase
-        if runner.vae and next(runner.vae.parameters()).device.type == 'meta':
+        if _model_device_type(runner.vae) == 'meta':
             materialize_model(runner, "vae", ctx['vae_device'], runner.config, debug)
 
         # Precision should already be initialized from encoding phase
@@ -1014,6 +1057,9 @@ def decode_all_batches(
             debug.start_timer("vae_decode")
             samples = runner.vae_decode([upscaled_latent])
             debug.end_timer("vae_decode", "VAE decode")
+
+            # Diagnostic probe: verify decoded pixel output is sane (black-output debugging)
+            _log_tensor_stats(f"VAE decoded batch {decode_idx+1}", samples[0], debug)
             
             # Process samples - get the single decoded sample
             debug.start_timer("optimized_video_rearrange")
@@ -1435,7 +1481,10 @@ def postprocess_all_batches(
             
             # Convert to final format: [T, C, H, W] → [T, H, W, C]
             sample = optimized_sample_to_image_format(sample)
-            
+
+            # Diagnostic probe: pre-normalization stats (should be ~[-1, 1])
+            _log_tensor_stats(f"Phase 4 pre-normalization batch {info_idx+1}", sample, debug)
+
             # Apply normalization only to RGB channels, preserve Alpha as-is
             if ctx.get('is_rgba', False) and sample.shape[-1] == 4:
                 # Split RGBA: sample is (T, H, W, C) format after optimized_sample_to_image_format
@@ -1450,6 +1499,9 @@ def postprocess_all_batches(
             else:
                 # RGB only: apply normalization as usual
                 sample.clamp_(-1, 1).mul_(0.5).add_(0.5)
+
+            # Diagnostic probe: post-normalization stats (should be ~[0, 1])
+            _log_tensor_stats(f"Phase 4 post-normalization batch {info_idx+1}", sample, debug)
             
             # Draw tile boundaries for debugging (if tile info available)
             for phase, attr in [('encode', 'encode_tile_boundaries'), ('decode', 'decode_tile_boundaries')]:

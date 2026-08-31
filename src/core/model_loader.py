@@ -81,6 +81,36 @@ from ..utils.constants import get_script_directory, suppress_tensor_warnings
 script_directory = get_script_directory()
 
 
+def _unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
+    """
+    Unwrap torch.compile OptimizedModule and CompatibleDiT wrappers to reach
+    the real nn.Module. Iterating parameters() on a torch.compiled module
+    triggers torch._dynamo's __len__ guard (TypeError: X does not support len()).
+    """
+    if model is None:
+        return None
+    if hasattr(model, '_orig_mod'):
+        model = model._orig_mod
+    if hasattr(model, 'dit_model'):
+        model = model.dit_model
+    return model
+
+
+def _model_device_type(model: torch.nn.Module) -> Optional[str]:
+    """
+    Safely get the device type of a model's first parameter.
+    Returns None if the model is None or has no parameters.
+    """
+    real = _unwrap_model(model)
+    if real is None:
+        return None
+    try:
+        param = next(real.parameters(), None)
+    except (StopIteration, TypeError, RuntimeError):
+        param = None
+    return param.device.type if param is not None else None
+
+
 def load_quantized_state_dict(checkpoint_path: str, device: torch.device = torch.device("cpu"),
                               debug: Optional['Debug'] = None) -> Dict[str, torch.Tensor]:
     """
@@ -500,9 +530,9 @@ def materialize_model(runner: VideoDiffusionInfer, model_type: str, device: torc
     if model is None:
         debug.log(f"No {model_type_upper} model structure found", level="WARNING", category=model_type, force=True)
         return
-    param_device = next(model.parameters()).device
-    if param_device.type != 'meta':
-        debug.log(f"{model_type_upper} already materialized on {model.device}", category=model_type)
+    param_device_type = _model_device_type(model)
+    if param_device_type is not None and param_device_type != 'meta':
+        debug.log(f"{model_type_upper} already materialized", category=model_type)
         return
     
     # Determine target device for materialization
