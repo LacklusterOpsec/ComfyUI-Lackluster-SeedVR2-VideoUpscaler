@@ -6,6 +6,7 @@ Extracted from: seedvr2.py (lines 1045-1630)
 """
 
 # Compatibility shims - Must run before any torch/diffusers import
+import os
 import sys
 import types
 import importlib.machinery
@@ -61,6 +62,12 @@ def ensure_xformers_flash_compat():
     Pre-test xformers._C_flashattention; stub if DLL is broken.
     Prevents xformers.ops.fmha.flash from crashing on import.
     """
+    # xformers refuses to import xformers.ops when a flash-attn newer than the
+    # version it was built against is installed (it raises ImportError unless
+    # FA is within [2.7.1, 2.8.4]). That hard-fails diffusers, which eagerly
+    # imports xformers.ops. This is the upstream-sanctioned escape hatch:
+    # relax the check so xformers loads with newer flash-attn builds too.
+    os.environ.setdefault("XFORMERS_IGNORE_FLASH_VERSION_CHECK", "1")
     if 'xformers._C_flashattention' in sys.modules:
         return  # Already loaded
     
@@ -116,7 +123,6 @@ ensure_bitsandbytes_safe()
 
 
 import torch
-import os
 
 
 # Flash/Sage Attention & Triton Compatibility Layer

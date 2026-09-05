@@ -8,6 +8,21 @@ section of the README. This file mirrors the most recent hotfixes and releases.
 
 ## [Unreleased]
 
+## [2026.09.05] - Hotfix: Startup Crash with Newer Flash-Attention
+
+### Fixed
+
+- **Import crash when flash-attn > 2.8.4 is installed** — xformers'
+  `xformers.ops.fmha.flash` hard-fails with `Requires Flash-Attention version
+  >=2.7.1,<=2.8.4 but got <version>` whenever the installed `flash-attn` falls
+  outside that pinned window (e.g. the `2.9.2.post1` prebuilt wheel now shipped
+  by the project). Because `diffusers.models.embeddings` eagerly imports
+  `xformers.ops`, the whole custom node pack failed to load in ComfyUI. Fixed
+  in `src/optimization/compatibility.py`: `ensure_xformers_flash_compat()` now
+  sets the upstream-sanctioned `XFORMERS_IGNORE_FLASH_VERSION_CHECK=1` escape
+  hatch before any torch/diffusers import, so xformers loads with both older
+  and newer flash-attn builds and attention backends fall back gracefully.
+
 ## [2026.08.30] - Hotfix: Black Output & torch.compile Crash
 
 ### Fixed

@@ -7,6 +7,10 @@
 
 ## 🚀 Release Notes
 
+**2026.09.05 - Hotfix: Startup Crash with Newer Flash-Attention**
+
+- **🛡️ Fix: Import crash when flash-attn > 2.8.4 is installed** - xformers' `xformers.ops` module refuses to import unless the installed `flash-attn` version falls within its pinned `>=2.7.1,<=2.8.4` window. Since `diffusers.models.embeddings` eagerly imports `xformers.ops`, any newer flash-attn build (e.g. `2.9.2.post1`, now shipped as a prebuilt wheel by `flash-attn`) caused the entire SeedVR2 node pack to fail loading with `Requires Flash-Attention version >=2.7.1,<=2.8.4 but got 2.9.2.post1`. This is exactly what the upstream-sanctioned `XFORMERS_IGNORE_FLASH_VERSION_CHECK=1` escape hatch exists for: `ensure_xformers_flash_compat()` in `src/optimization/compatibility.py` now sets it before any torch/diffusers import, so xformers loads cleanly with older *and* newer flash-attn builds and attention falls back gracefully.
+
 **2026.08.30 - Hotfix: Black Output & torch.compile Crash**
 
 - **🐛 Fix: Completely black output with FP8/mixed-precision models** - Removed the hardcoded `steps=1 / cfg_scale=1.0` override in `upscale_all_batches` that forced every EMA checkpoint (e.g. `seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors`) into a single denoising step with no classifier-free guidance. The bundled EMA checkpoints are trained for 50 steps at CFG 7.5; a single t=1.0 step with CFG disabled produced a barely-denoised latent that decoded to black. The pipeline now uses the configured defaults (50 steps, euler, CFG 7.5) and honors the node's `steps`/`sampler_name` widgets.
